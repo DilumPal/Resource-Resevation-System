@@ -1,9 +1,6 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -11,4 +8,132 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+}
+
+// User roles in SyncSpace
+enum Role {
+  ADMIN
+  MEMBER
+}
+
+// Operational status of resources
+enum ResourceStatus {
+  AVAILABLE
+  MAINTENANCE
+  RETIRED
+}
+
+// Lifecycle status of reservations
+enum ReservationStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  REJECTED
+}
+
+// Lifecycle status of maintenance events
+enum MaintenanceStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+// System Users (Administrators and Organization Members)
+model User {
+  id           String        @id @default(uuid())
+  email        String        @unique
+  name         String
+  role         Role          @default(MEMBER)
+  department   String
+  avatarUrl    String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  reservations Reservation[]
+
+  @@index([email])
+  @@index([role])
+}
+
+// Categorization for resources (e.g., Conference Rooms, Lab Equipment, Pods, Vehicles)
+model Category {
+  id          String     @id @default(uuid())
+  name        String     @unique
+  slug        String     @unique
+  description String?
+  iconName    String     @default("Layers")
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  resources   Resource[]
+
+  @@index([slug])
+}
+
+// Shared company resources available for booking
+model Resource {
+  id               String            @id @default(uuid())
+  categoryId       String
+  category         Category          @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  name             String
+  code             String            @unique // Unique short code, e.g. "CR-01", "LAB-03"
+  location         String
+  capacity         Int               @default(1)
+  description      String
+  status           ResourceStatus    @default(AVAILABLE)
+  requiresApproval Boolean           @default(false)
+  bufferMinutes    Int               @default(0) // Turnover/cleaning buffer between reservations
+  imageUrl         String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  reservations     Reservation[]
+  maintenanceLogs  MaintenanceLog[]
+
+  @@index([categoryId])
+  @@index([status])
+  @@index([code])
+}
+
+// Reservations made by users for specific resources
+model Reservation {
+  id              String            @id @default(uuid())
+  resourceId      String
+  resource        Resource          @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title           String
+  purpose         String?
+  startTime       DateTime
+  endTime         DateTime
+  status          ReservationStatus @default(CONFIRMED)
+  rejectionReason String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  // Composite index for ultra-fast overlap queries: (startTime < newEnd AND endTime > newStart)
+  @@index([resourceId, startTime, endTime])
+  @@index([userId])
+  @@index([status])
+  @@index([startTime])
+}
+
+// Maintenance schedule and incident log for resources
+model MaintenanceLog {
+  id          String            @id @default(uuid())
+  resourceId  String
+  resource    Resource          @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  startTime   DateTime
+  endTime     DateTime?
+  reason      String
+  performedBy String?
+  status      MaintenanceStatus @default(SCHEDULED)
+  notes       String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@index([resourceId])
+  @@index([status])
+  @@index([startTime])
 }

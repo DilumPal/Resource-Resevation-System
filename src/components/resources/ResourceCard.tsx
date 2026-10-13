@@ -241,9 +241,12 @@ export function ResourceCard({ resource, onBookClick }: ResourceCardProps) {
         <div>
           {/* Title & Approval Notice */}
           <div className="flex items-start justify-between gap-2">
-            <h3 className="text-base font-bold text-zinc-900 dark:text-white group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors">
+            <Link
+              href={`/resources/${resource.id}`}
+              className="text-base font-bold text-zinc-900 dark:text-white hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors"
+            >
               {resource.name}
-            </h3>
+            </Link>
             {resource.requiresApproval && (
               <span
                 title="This resource requires administrator approval before confirmation"

@@ -198,6 +198,36 @@ export async function getResources(filters?: {
         category: {
           select: { id: true, name: true, slug: true, iconName: true },
         },
+        reservations: {
+          where: {
+            status: { in: ['CONFIRMED', 'PENDING'] },
+            endTime: { gte: new Date() },
+          },
+          select: {
+            id: true,
+            title: true,
+            startTime: true,
+            endTime: true,
+            status: true,
+            user: { select: { name: true } },
+          },
+          orderBy: { startTime: 'asc' },
+          take: 3,
+        },
+        maintenanceLogs: {
+          where: {
+            status: { in: ['IN_PROGRESS', 'SCHEDULED'] },
+          },
+          select: {
+            id: true,
+            reason: true,
+            startTime: true,
+            endTime: true,
+            status: true,
+          },
+          orderBy: { startTime: 'asc' },
+          take: 1,
+        },
         _count: {
           select: {
             reservations: true,

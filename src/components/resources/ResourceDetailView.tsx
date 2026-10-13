@@ -33,6 +33,7 @@ import {
   getLiveStatus,
 } from './ResourceCard';
 import { VisualSchedule } from '../schedule/VisualSchedule';
+import { BookingModal } from '../booking/BookingModal';
 
 interface ResourceDetailViewProps {
   resource: ResourceData;
@@ -44,6 +45,7 @@ export function ResourceDetailView({
   allResources,
 }: ResourceDetailViewProps) {
   const [imageError, setImageError] = useState(false);
+  const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
   const liveStatus = getLiveStatus(resource);
 
   // Derive contextual amenities based on category and description
@@ -205,7 +207,7 @@ export function ResourceDetailView({
           </Link>
 
           <button
-            onClick={scrollToSchedule}
+            onClick={() => setIsBookingModalOpen(true)}
             className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-md shadow-emerald-600/20 active:scale-95 transition-all cursor-pointer"
           >
             <Calendar className="w-4 h-4" />
@@ -386,7 +388,7 @@ export function ResourceDetailView({
 
             <div className="pt-4 border-t border-zinc-100 dark:border-zinc-800">
               <button
-                onClick={scrollToSchedule}
+                onClick={() => setIsBookingModalOpen(true)}
                 className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white text-xs font-bold shadow-md shadow-emerald-600/20 transition-all cursor-pointer"
               >
                 Choose Slot on Timeline
@@ -441,6 +443,14 @@ export function ResourceDetailView({
           </div>
         </div>
       </div>
+
+      {/* Smart Booking Modal */}
+      <BookingModal
+        isOpen={isBookingModalOpen}
+        onClose={() => setIsBookingModalOpen(false)}
+        resources={allResources}
+        initialResourceId={resource.id}
+      />
     </div>
   );
 }

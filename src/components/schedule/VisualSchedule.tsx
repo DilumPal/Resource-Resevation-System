@@ -32,6 +32,7 @@ import {
 import { ResourceData, getCategoryIcon, getLiveStatus } from '../resources/ResourceCard';
 import { useUserRole } from '@/context/UserRoleContext';
 import { useNotification } from '@/context/NotificationContext';
+import { BookingModal } from '../booking/BookingModal';
 
 interface VisualScheduleProps {
   resources: ResourceData[];
@@ -112,11 +113,6 @@ export function VisualSchedule({
     endTime: string;
     formattedTime: string;
   } | null>(null);
-
-  // Booking Form Fields
-  const [bookingTitle, setBookingTitle] = useState('');
-  const [bookingPurpose, setBookingPurpose] = useState('');
-  const [isSubmittingBooking, setIsSubmittingBooking] = useState(false);
 
   // Active Resource object
   const activeResource = useMemo(() => {
@@ -225,61 +221,6 @@ export function VisualSchedule({
 
   const handleToday = () => {
     setCurrentDate(new Date());
-  };
-
-  // Submit new booking
-  const handleConfirmBooking = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!bookingSlot || !activeResource) return;
-
-    if (!bookingTitle.trim()) {
-      showToast({
-        type: 'warning',
-        title: 'Title Required',
-        message: 'Please provide a descriptive reservation title.',
-      });
-      return;
-    }
-
-    setIsSubmittingBooking(true);
-    try {
-      const res = await createReservation({
-        resourceId: activeResource.id,
-        userId: currentUser.id,
-        title: bookingTitle.trim(),
-        purpose: bookingPurpose.trim() || undefined,
-        startTime: bookingSlot.startTime,
-        endTime: bookingSlot.endTime,
-      });
-
-      if (res.success) {
-        showToast({
-          type: 'success',
-          title: res.requiresApproval ? 'Approval Requested' : 'Reservation Confirmed',
-          message: res.message || 'Your reservation has been booked successfully.',
-        });
-        setBookingSlot(null);
-        setBookingTitle('');
-        setBookingPurpose('');
-        // Reload schedule
-        loadScheduleData();
-      } else {
-        showToast({
-          type: 'error',
-          title: 'Booking Conflict',
-          message: res.error || 'The requested slot could not be booked.',
-        });
-      }
-    } catch (err) {
-      console.error('Failed to create reservation:', err);
-      showToast({
-        type: 'error',
-        title: 'System Error',
-        message: 'An unexpected error occurred while confirming reservation.',
-      });
-    } finally {
-      setIsSubmittingBooking(false);
-    }
   };
 
   // Date formatted strings
@@ -894,120 +835,18 @@ export function VisualSchedule({
         </div>
       )}
 
-      {/* ================= FAST BOOKING MODAL ================= */}
+      {/* ================= SMART BOOKING MODAL ================= */}
       {bookingSlot && activeResource && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in">
-          <div className="w-full max-w-lg rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xl overflow-hidden">
-            <form onSubmit={handleConfirmBooking}>
-              <div className="p-5 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
-                <div>
-                  <h3 className="text-base font-bold text-zinc-900 dark:text-white">
-                    Book {activeResource.name}
-                  </h3>
-                  <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-                    {activeResource.code} • {activeResource.location}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setBookingSlot(null)}
-                  className="p-1 rounded-lg text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              <div className="p-5 space-y-4">
-                {/* Selected Slot Notice */}
-                <div className="p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 flex items-start gap-3">
-                  <Clock className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-                  <div>
-                    <p className="text-xs font-bold text-emerald-900 dark:text-emerald-200">
-                      Selected Time Slot
-                    </p>
-                    <p className="text-xs text-emerald-700 dark:text-emerald-400 font-mono mt-0.5">
-                      {bookingSlot.formattedTime} on{' '}
-                      {new Date(bookingSlot.startTime).toLocaleDateString('en-US', {
-                        month: 'short',
-                        day: 'numeric',
-                        year: 'numeric',
-                      })}
-                    </p>
-                    {activeResource.bufferMinutes > 0 && (
-                      <p className="text-[11px] text-purple-700 dark:text-purple-300 mt-1">
-                        A {activeResource.bufferMinutes}-minute turnaround buffer will be added
-                        automatically after your booking.
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                {/* Form Fields */}
-                <div>
-                  <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1.5">
-                    Reservation Title <span className="text-rose-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={bookingTitle}
-                    onChange={(e) => setBookingTitle(e.target.value)}
-                    placeholder="e.g. Q4 Executive Strategy Session"
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-sm text-zinc-900 dark:text-white placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1.5">
-                    Purpose / Agenda (Optional)
-                  </label>
-                  <textarea
-                    rows={2}
-                    value={bookingPurpose}
-                    onChange={(e) => setBookingPurpose(e.target.value)}
-                    placeholder="Notes for attendees, equipment requirements, or agenda points..."
-                    className="w-full px-3.5 py-2 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-xs text-zinc-900 dark:text-white placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 resize-none"
-                  />
-                </div>
-
-                {/* User Identity Confirmation */}
-                <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800 flex items-center justify-between text-xs text-zinc-500 dark:text-zinc-400">
-                  <span>Booking as:</span>
-                  <span className="font-semibold text-zinc-800 dark:text-zinc-200">
-                    {currentUser.name} ({currentUser.department})
-                  </span>
-                </div>
-              </div>
-
-              <div className="p-4 bg-zinc-50 dark:bg-zinc-800/50 border-t border-zinc-100 dark:border-zinc-800 flex items-center justify-between gap-3">
-                <button
-                  type="button"
-                  onClick={() => setBookingSlot(null)}
-                  className="px-4 py-2.5 rounded-xl border border-zinc-200 dark:border-zinc-700 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
-                >
-                  Cancel
-                </button>
-
-                <button
-                  type="submit"
-                  disabled={isSubmittingBooking}
-                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold shadow-md shadow-emerald-600/20 active:scale-95 transition-all cursor-pointer"
-                >
-                  {isSubmittingBooking ? (
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  ) : (
-                    <Check className="w-4 h-4" />
-                  )}
-                  <span>
-                    {activeResource.requiresApproval
-                      ? 'Submit for Approval'
-                      : 'Confirm Reservation'}
-                  </span>
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+        <BookingModal
+          isOpen={!!bookingSlot}
+          onClose={() => setBookingSlot(null)}
+          resources={resources}
+          initialResourceId={activeResource.id}
+          initialDate={bookingSlot.startTime.slice(0, 10)}
+          initialStartTime={bookingSlot.startTime}
+          initialEndTime={bookingSlot.endTime}
+          onSuccess={loadScheduleData}
+        />
       )}
     </div>
   );

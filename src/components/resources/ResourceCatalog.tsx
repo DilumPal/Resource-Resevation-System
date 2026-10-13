@@ -21,6 +21,7 @@ import {
   AlertTriangle,
   RotateCcw,
 } from 'lucide-react';
+import { BookingModal } from '../booking/BookingModal';
 
 interface ResourceCatalogProps {
   initialResources: ResourceData[];
@@ -38,6 +39,7 @@ export function ResourceCatalog({
   const [capacityFilter, setCapacityFilter] = useState<CapacityFilter>('ALL');
   const [availabilityFilter, setAvailabilityFilter] = useState<AvailabilityFilter>('ALL');
   const [sortBy, setSortBy] = useState<SortOption>('DEFAULT');
+  const [selectedBookingResource, setSelectedBookingResource] = useState<ResourceData | null>(null);
 
   // Handle resetting all filters
   const handleResetFilters = () => {
@@ -187,8 +189,7 @@ export function ResourceCatalog({
                 if (onBookResource) {
                   onBookResource(res);
                 } else {
-                  // Direct navigation to schedule view for this resource
-                  window.location.href = `/schedule?resourceId=${res.id}`;
+                  setSelectedBookingResource(res);
                 }
               }}
             />
@@ -216,6 +217,16 @@ export function ResourceCatalog({
             </button>
           </div>
         </div>
+      )}
+
+      {/* Smart Booking Modal */}
+      {selectedBookingResource && (
+        <BookingModal
+          isOpen={!!selectedBookingResource}
+          onClose={() => setSelectedBookingResource(null)}
+          resources={initialResources}
+          initialResourceId={selectedBookingResource.id}
+        />
       )}
     </section>
   );

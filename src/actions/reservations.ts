@@ -681,3 +681,54 @@ export async function getScheduleReservations(
     };
   }
 }
+
+/**
+ * Instant server-side conflict check for smart booking modal.
+ * Validates requested time window against active reservations, turnaround buffers, and maintenance.
+ */
+export async function checkSlotConflict(input: {
+  resourceId: string;
+  startTime: string | Date;
+  endTime: string | Date;
+  excludeReservationId?: string;
+}) {
+  try {
+    const start = new Date(input.startTime);
+    const end = new Date(input.endTime);
+
+    const result = await checkReservationConflict(prisma, {
+      resourceId: input.resourceId,
+      startTime: start,
+      endTime: end,
+      excludeReservationId: input.excludeReservationId,
+    });
+
+    return {
+      success: true,
+      hasConflict: result.hasConflict,
+      canBook: result.canBook,
+      conflictType: result.conflictType,
+      message: result.message,
+      conflicts: result.conflicts.map((c) => ({
+        type: c.type,
+        id: c.id,
+        title: c.title,
+        startTime: c.startTime.toISOString(),
+        endTime: c.endTime.toISOString(),
+        status: c.status,
+        reason: c.reason,
+      })),
+      resource: result.resource,
+    };
+  } catch (error) {
+    console.error('[ERROR] Failed to check slot conflict:', error);
+    return {
+      success: false,
+      hasConflict: true,
+      canBook: false,
+      message: error instanceof Error ? error.message : 'Failed to validate slot availability.',
+      conflicts: [],
+    };
+  }
+}
+

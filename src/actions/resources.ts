@@ -474,6 +474,7 @@ export async function getAdminDashboardStats() {
       pendingReservations,
       allCategories,
       activeMaintenanceLogs,
+      recentReservations,
     ] = await Promise.all([
       prisma.resource.count(),
       prisma.resource.count({ where: { status: ResourceStatus.AVAILABLE } }),
@@ -498,18 +499,163 @@ export async function getAdminDashboardStats() {
         take: 10,
       }),
       prisma.category.findMany({
-        include: { _count: { select: { resources: true } } },
+        include: {
+          _count: { select: { resources: true } },
+          resources: {
+            select: {
+              id: true,
+              name: true,
+              code: true,
+              _count: {
+                select: {
+                  reservations: {
+                    where: { status: { in: ['CONFIRMED', 'PENDING'] } },
+                  },
+                },
+              },
+            },
+          },
+        },
+        orderBy: { name: 'asc' },
       }),
       prisma.maintenanceLog.findMany({
         where: { status: { in: ['IN_PROGRESS', 'SCHEDULED'] } },
         include: { resource: { select: { name: true, code: true } } },
         orderBy: { startTime: 'asc' },
       }),
+      prisma.reservation.findMany({
+        where: {
+          status: { in: ['CONFIRMED', 'PENDING'] },
+        },
+        select: {
+          id: true,
+          title: true,
+          startTime: true,
+          endTime: true,
+          status: true,
+          resourceId: true,
+          resource: {
+            select: {
+              id: true,
+              name: true,
+              code: true,
+              category: { select: { name: true } },
+            },
+          },
+        },
+      }),
     ]);
 
     // Approximate utilization rate today across total operating hours (12 hours / resource)
     const totalPotentialSlotHours = Math.max(1, totalResources * 12);
     const utilizationRate = Math.min(100, Math.round((todayBookingsCount * 1.5 / totalPotentialSlotHours) * 100));
+
+    // 1. Category Demand Breakdown
+    const totalBookingsAll = Math.max(1, recentReservations.length);
+    const categoryDemand = allCategories.map((cat) => {
+      const count = cat.resources.reduce((sum, r) => sum + r._count.reservations, 0);
+      const percentage = Math.round((count / totalBookingsAll) * 100);
+      return {
+        id: cat.id,
+        name: cat.name,
+        count,
+        resourceCount: cat.resources.length,
+        percentage,
+      };
+    });
+
+    // 2. 7-Day Demand Horizon Trend (Monday to Sunday)
+    const weekStart = new Date(today);
+    const dayOfWeek = today.getDay();
+    const distToMon = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+    weekStart.setDate(today.getDate() + distToMon);
+    weekStart.setHours(0, 0, 0, 0);
+
+    const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    const dailyTrend = dayNames.map((name, idx) => {
+      const d = new Date(weekStart);
+      d.setDate(weekStart.getDate() + idx);
+      const dStart = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0).getTime();
+      const dEnd = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999).getTime();
+
+      const dayReservations = recentReservations.filter((r) => {
+        const rStart = new Date(r.startTime).getTime();
+        return rStart >= dStart && rStart <= dEnd;
+      });
+
+      const confirmed = dayReservations.filter((r) => r.status === 'CONFIRMED').length;
+      const pending = dayReservations.filter((r) => r.status === 'PENDING').length;
+      const total = confirmed + pending;
+
+      const isCurrentDay =
+        today.getDate() === d.getDate() &&
+        today.getMonth() === d.getMonth() &&
+        today.getFullYear() === d.getFullYear();
+
+      return {
+        day: name,
+        date: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        shortDate: String(d.getDate()),
+        confirmed,
+        pending,
+        total,
+        isToday: isCurrentDay,
+      };
+    });
+
+    // 3. Hourly Distribution Across Operating Hours (08:00 - 20:00 in 2-hour brackets)
+    const hourlyBrackets = [
+      { slot: '08:00 – 10:00', startH: 8, endH: 10 },
+      { slot: '10:00 – 12:00', startH: 10, endH: 12 },
+      { slot: '12:00 – 14:00', startH: 12, endH: 14 },
+      { slot: '14:00 – 16:00', startH: 14, endH: 16 },
+      { slot: '16:00 – 18:00', startH: 16, endH: 18 },
+      { slot: '18:00 – 20:00', startH: 18, endH: 20 },
+    ];
+
+    const hourlyDistribution = hourlyBrackets.map((bracket) => {
+      const count = recentReservations.filter((r) => {
+        const s = new Date(r.startTime);
+        const hour = s.getHours();
+        return hour >= bracket.startH && hour < bracket.endH;
+      }).length;
+
+      const maxBracketCount = Math.max(1, ...hourlyBrackets.map((b) => 4));
+      const intensityPercent = Math.min(100, Math.round((count / maxBracketCount) * 100));
+
+      return {
+        timeSlot: bracket.slot,
+        count,
+        intensityPercent,
+      };
+    });
+
+    // 4. Top Demanded Resources Ranking
+    const resourceMap: Record<
+      string,
+      { id: string; name: string; code: string; categoryName: string; bookingsCount: number }
+    > = {};
+
+    recentReservations.forEach((r) => {
+      if (!resourceMap[r.resourceId]) {
+        resourceMap[r.resourceId] = {
+          id: r.resource.id,
+          name: r.resource.name,
+          code: r.resource.code,
+          categoryName: r.resource.category.name,
+          bookingsCount: 0,
+        };
+      }
+      resourceMap[r.resourceId].bookingsCount += 1;
+    });
+
+    const topDemandedResources = Object.values(resourceMap)
+      .sort((a, b) => b.bookingsCount - a.bookingsCount)
+      .slice(0, 5)
+      .map((item) => ({
+        ...item,
+        utilizationPercent: Math.min(100, Math.round((item.bookingsCount / 5) * 100)),
+      }));
 
     return {
       success: true,
@@ -521,6 +667,10 @@ export async function getAdminDashboardStats() {
         pendingApprovalsCount: pendingCount,
         utilizationRate,
       },
+      categoryDemand,
+      dailyTrend,
+      hourlyDistribution,
+      topDemandedResources,
       pendingReservations,
       activeMaintenanceLogs,
       categories: allCategories,
@@ -537,6 +687,10 @@ export async function getAdminDashboardStats() {
         pendingApprovalsCount: 0,
         utilizationRate: 0,
       },
+      categoryDemand: [],
+      dailyTrend: [],
+      hourlyDistribution: [],
+      topDemandedResources: [],
       pendingReservations: [],
       activeMaintenanceLogs: [],
       categories: [],

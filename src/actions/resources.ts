@@ -457,6 +457,110 @@ export async function updateResource(
 }
 
 /**
+ * Admin action to archive or restore a resource (toggles RETIRED vs AVAILABLE).
+ */
+export async function archiveResource(id: string, archive: boolean = true, adminUserId?: string) {
+  try {
+    if (adminUserId) {
+      const admin = await prisma.user.findUnique({
+        where: { id: adminUserId },
+        select: { role: true },
+      });
+      if (!admin || admin.role !== Role.ADMIN) {
+        return {
+          success: false,
+          error: 'Only administrators can archive resources.',
+        };
+      }
+    }
+
+    const updated = await prisma.resource.update({
+      where: { id },
+      data: { status: archive ? ResourceStatus.RETIRED : ResourceStatus.AVAILABLE },
+    });
+
+    safeRevalidatePath('/');
+    safeRevalidatePath('/schedule');
+    safeRevalidatePath('/admin');
+
+    return {
+      success: true,
+      resource: updated,
+      message: archive
+        ? `Resource "${updated.name}" has been archived (marked Retired).`
+        : `Resource "${updated.name}" has been restored to Available.`,
+    };
+  } catch (error) {
+    console.error('[ERROR] Failed to archive resource:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to archive resource.',
+    };
+  }
+}
+
+/**
+ * Admin action to permanently delete or safely archive a resource.
+ */
+export async function deleteResource(id: string, adminUserId?: string) {
+  try {
+    if (adminUserId) {
+      const admin = await prisma.user.findUnique({
+        where: { id: adminUserId },
+        select: { role: true },
+      });
+      if (!admin || admin.role !== Role.ADMIN) {
+        return {
+          success: false,
+          error: 'Only administrators can delete resources.',
+        };
+      }
+    }
+
+    const reservationsCount = await prisma.reservation.count({
+      where: { resourceId: id },
+    });
+
+    if (reservationsCount > 0) {
+      const updated = await prisma.resource.update({
+        where: { id },
+        data: { status: ResourceStatus.RETIRED },
+      });
+
+      safeRevalidatePath('/');
+      safeRevalidatePath('/schedule');
+      safeRevalidatePath('/admin');
+
+      return {
+        success: true,
+        archived: true,
+        message: `Resource "${updated.name}" has existing booking history and was safely archived as Retired.`,
+      };
+    }
+
+    const deleted = await prisma.resource.delete({
+      where: { id },
+    });
+
+    safeRevalidatePath('/');
+    safeRevalidatePath('/schedule');
+    safeRevalidatePath('/admin');
+
+    return {
+      success: true,
+      archived: false,
+      message: `Resource "${deleted.name}" has been permanently removed.`,
+    };
+  } catch (error) {
+    console.error('[ERROR] Failed to delete resource:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to delete resource.',
+    };
+  }
+}
+
+/**
  * Calculates operational KPIs and statistics for the Administrator Dashboard.
  */
 export async function getAdminDashboardStats() {

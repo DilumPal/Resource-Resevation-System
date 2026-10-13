@@ -1,7 +1,9 @@
 import React from 'react';
-import { getAdminDashboardStats } from '@/actions/resources';
+import { getAdminDashboardStats, getResources, getCategories } from '@/actions/resources';
 import { AdminDashboard, AdminStatsData } from '@/components/admin/AdminDashboard';
-import { ShieldCheck, AlertTriangle } from 'lucide-react';
+import { ResourceData } from '@/components/resources/ResourceCard';
+import { CategoryItem } from '@/components/admin/ResourceFormModal';
+import { AlertTriangle } from 'lucide-react';
 import Link from 'next/link';
 
 export const dynamic = 'force-dynamic';
@@ -12,9 +14,13 @@ export const metadata = {
 };
 
 export default async function AdminPage() {
-  const result = await getAdminDashboardStats();
+  const [statsResult, resourcesResult, categoriesResult] = await Promise.all([
+    getAdminDashboardStats(),
+    getResources(),
+    getCategories(),
+  ]);
 
-  if (!result.success) {
+  if (!statsResult.success) {
     return (
       <div className="max-w-3xl mx-auto px-4 py-20 text-center">
         <div className="w-14 h-14 rounded-2xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 flex items-center justify-center text-rose-600 dark:text-rose-400 mx-auto mb-4">
@@ -24,7 +30,7 @@ export default async function AdminPage() {
           Failed to Load Administration Telemetry
         </h1>
         <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400 max-w-md mx-auto">
-          {result.error || 'An error occurred while calculating operational metrics.'}
+          {statsResult.error || 'An error occurred while calculating operational metrics.'}
         </p>
         <div className="mt-6">
           <Link
@@ -38,5 +44,12 @@ export default async function AdminPage() {
     );
   }
 
-  return <AdminDashboard initialData={result as unknown as AdminStatsData} />;
+  return (
+    <AdminDashboard
+      initialData={statsResult as unknown as AdminStatsData}
+      initialResources={(resourcesResult.resources || []) as unknown as ResourceData[]}
+      categories={(categoriesResult.categories || []) as CategoryItem[]}
+    />
+  );
 }
+

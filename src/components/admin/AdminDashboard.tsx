@@ -2,11 +2,13 @@
 
 import React, { useState, useMemo } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   Layers,
   CalendarDays,
   TrendingUp,
   ShieldCheck,
+  ShieldAlert,
   AlertTriangle,
   Building2,
   Laptop,
@@ -25,10 +27,19 @@ import {
   Shield,
   ArrowUpRight,
   Filter,
+  Plus,
+  Edit2,
+  Archive,
+  ArchiveRestore,
+  Search,
+  X,
 } from 'lucide-react';
+import { ResourceStatus } from '@prisma/client';
 import { useUserRole } from '@/context/UserRoleContext';
 import { useNotification } from '@/context/NotificationContext';
-import { getCategoryIcon } from '../resources/ResourceCard';
+import { ResourceData, getCategoryIcon } from '../resources/ResourceCard';
+import { ResourceFormModal, CategoryItem } from './ResourceFormModal';
+import { archiveResource, getResources } from '@/actions/resources';
 
 export interface AdminStatsData {
   stats: {
@@ -98,13 +109,24 @@ export interface AdminStatsData {
       code: string;
     };
   }>;
+  categories: Array<{
+    id: string;
+    name: string;
+  }>;
 }
 
 interface AdminDashboardProps {
   initialData: AdminStatsData;
+  initialResources?: ResourceData[];
+  categories?: CategoryItem[];
 }
 
-export function AdminDashboard({ initialData }: AdminDashboardProps) {
+export function AdminDashboard({
+  initialData,
+  initialResources = [],
+  categories = [],
+}: AdminDashboardProps) {
+  const router = useRouter();
   const { currentUser, role, toggleRole, isAdmin } = useUserRole();
   const { showToast } = useNotification();
 
@@ -118,6 +140,27 @@ export function AdminDashboard({ initialData }: AdminDashboardProps) {
     activeMaintenanceLogs,
   } = initialData;
 
+  // Inventory Management State
+  const [resourcesList, setResourcesList] = useState<ResourceData[]>(initialResources);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('ALL');
+  const [selectedStatus, setSelectedStatus] = useState<'ALL' | ResourceStatus>('ALL');
+
+  // Modal State
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [resourceToEdit, setResourceToEdit] = useState<ResourceData | null>(null);
+  const [isArchivingId, setIsArchivingId] = useState<string | null>(null);
+
+  const activeCategories: CategoryItem[] = useMemo(() => {
+    if (categories && categories.length > 0) return categories;
+    return initialData.categories.map((c) => ({
+      id: c.id,
+      name: c.name,
+      slug: c.id,
+      iconName: 'Building2',
+    }));
+  }, [categories, initialData.categories]);
+
   const handleRoleToggle = () => {
     toggleRole();
     showToast({
@@ -127,11 +170,114 @@ export function AdminDashboard({ initialData }: AdminDashboardProps) {
     });
   };
 
-  // Find max daily count for bar chart scaling
+  const handleRefreshResources = async () => {
+    const res = await getResources();
+    if (res.success && res.resources) {
+      setResourcesList(res.resources as unknown as ResourceData[]);
+    }
+  };
+
+  const handleToggleArchive = async (res: ResourceData) => {
+    const willArchive = res.status !== ResourceStatus.RETIRED;
+    const previousStatus = res.status;
+    setIsArchivingId(res.id);
+
+    // Optimistic update
+    setResourcesList((prev) =>
+      prev.map((item) =>
+        item.id === res.id
+          ? {
+              ...item,
+              status: willArchive ? ResourceStatus.RETIRED : ResourceStatus.AVAILABLE,
+            }
+          : item
+      )
+    );
+
+    const result = await archiveResource(res.id, willArchive, currentUser.id);
+    setIsArchivingId(null);
+
+    if (result.success) {
+      showToast({
+        type: 'success',
+        title: willArchive ? 'Resource Archived' : 'Resource Restored',
+        message: result.message || `Status updated for ${res.name}.`,
+      });
+      router.refresh();
+    } else {
+      // Revert on failure
+      setResourcesList((prev) =>
+        prev.map((item) => (item.id === res.id ? { ...item, status: previousStatus } : item))
+      );
+      showToast({
+        type: 'error',
+        title: 'Operation Failed',
+        message: result.error || 'Failed to update resource status.',
+      });
+    }
+  };
+
+  // Filtered resources calculation
+  const filteredResources = useMemo(() => {
+    return resourcesList.filter((res) => {
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        const matchName = res.name.toLowerCase().includes(q);
+        const matchCode = res.code.toLowerCase().includes(q);
+        const matchLocation = res.location.toLowerCase().includes(q);
+        if (!matchName && !matchCode && !matchLocation) return false;
+      }
+      if (selectedCategory !== 'ALL' && res.categoryId !== selectedCategory) {
+        return false;
+      }
+      if (selectedStatus !== 'ALL' && res.status !== selectedStatus) {
+        return false;
+      }
+      return true;
+    });
+  }, [resourcesList, searchQuery, selectedCategory, selectedStatus]);
+
+  // Max daily count for bar chart scaling
   const maxDailyCount = useMemo(() => {
-    const maxVal = Math.max(1, ...dailyTrend.map((d) => d.total));
-    return maxVal;
+    return Math.max(1, ...dailyTrend.map((d) => d.total));
   }, [dailyTrend]);
+
+  // Role Gate check: Access Restricted for non-admins
+  if (!isAdmin) {
+    return (
+      <div className="max-w-4xl mx-auto px-4 py-16 text-center">
+        <div className="p-8 sm:p-12 rounded-3xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-sm max-w-2xl mx-auto">
+          <div className="w-16 h-16 rounded-2xl bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 flex items-center justify-center text-amber-600 dark:text-amber-400 mx-auto mb-6 shadow-xs">
+            <ShieldAlert className="w-8 h-8" />
+          </div>
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 text-xs font-bold mb-4">
+            <span>Restricted Area</span>
+          </div>
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-zinc-900 dark:text-white">
+            Administrator Access Required
+          </h1>
+          <p className="mt-3 text-sm text-zinc-600 dark:text-zinc-400 leading-relaxed">
+            You are currently viewing SyncSpace as <strong className="text-zinc-900 dark:text-zinc-100">{currentUser.name}</strong> with standard <span className="font-semibold text-zinc-800 dark:text-zinc-200">Member</span> permissions. The Operations Hub, inventory controls, and organizational analytics are restricted to system administrators.
+          </p>
+          <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3">
+            <button
+              onClick={handleRoleToggle}
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold shadow-md shadow-purple-600/20 active:scale-95 transition-all cursor-pointer"
+            >
+              <RotateCcw className="w-4 h-4" />
+              <span>Switch to Administrator (Sarah Jenkins)</span>
+            </button>
+            <Link
+              href="/"
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-800/60 text-xs font-semibold text-zinc-700 dark:text-zinc-300 transition-colors"
+            >
+              <span>Return to Catalog</span>
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full space-y-8">
@@ -348,73 +494,54 @@ export function AdminDashboard({ initialData }: AdminDashboardProps) {
                   key={index}
                   className="flex-1 flex flex-col items-center h-full justify-end group cursor-pointer"
                 >
-                  {/* Tooltip / Count on hover */}
-                  <div className="opacity-0 group-hover:opacity-100 transition-opacity text-[10px] font-mono font-bold text-zinc-600 dark:text-zinc-300 mb-1.5">
-                    {dayItem.total} {dayItem.total === 1 ? 'slot' : 'slots'}
+                  {/* Tooltip on hover */}
+                  <div className="opacity-0 group-hover:opacity-100 transition-opacity bg-zinc-900 text-white text-[10px] rounded-lg py-1 px-2 mb-2 pointer-events-none shadow-lg whitespace-nowrap z-20">
+                    <p className="font-bold">{dayItem.date}</p>
+                    <p className="text-emerald-400">{dayItem.confirmed} confirmed</p>
+                    {dayItem.pending > 0 && <p className="text-amber-400">{dayItem.pending} pending</p>}
                   </div>
 
-                  {/* Bar Column Stack */}
-                  <div className="w-full max-w-[42px] h-44 bg-zinc-100 dark:bg-zinc-800/60 rounded-xl flex flex-col justify-end overflow-hidden p-1 gap-1 border border-zinc-200/50 dark:border-zinc-700/50">
-                    {/* Pending portion (top) */}
-                    {dayItem.pending > 0 && (
+                  {/* Stacked Bar Container */}
+                  <div className="w-full max-w-[48px] bg-zinc-100 dark:bg-zinc-800 rounded-t-xl overflow-hidden flex flex-col justify-end relative h-44 group-hover:bg-zinc-200/80 dark:group-hover:bg-zinc-700/80 transition-colors">
+                    {/* Pending Segment */}
+                    {pendingHeightPercent > 0 && (
                       <div
-                        className="w-full bg-amber-500 hover:bg-amber-400 rounded-lg transition-all"
-                        style={{ height: `${Math.max(15, pendingHeightPercent)}%` }}
-                        title={`${dayItem.pending} Pending on ${dayItem.day}`}
+                        style={{ height: `${pendingHeightPercent}%` }}
+                        className="w-full bg-amber-500 border-b border-amber-600/40 transition-all duration-300"
                       />
                     )}
-
-                    {/* Confirmed portion (bottom) */}
-                    {dayItem.confirmed > 0 && (
+                    {/* Confirmed Segment */}
+                    {confirmedHeightPercent > 0 && (
                       <div
-                        className="w-full bg-emerald-600 hover:bg-emerald-500 rounded-lg transition-all"
-                        style={{ height: `${Math.max(15, confirmedHeightPercent)}%` }}
-                        title={`${dayItem.confirmed} Confirmed on ${dayItem.day}`}
+                        style={{ height: `${confirmedHeightPercent}%` }}
+                        className="w-full bg-emerald-600 transition-all duration-300"
                       />
-                    )}
-
-                    {dayItem.total === 0 && (
-                      <div className="w-full h-1 bg-zinc-200 dark:bg-zinc-700 rounded-full my-auto opacity-40" />
                     )}
                   </div>
 
-                  {/* Day Label & Date Marker */}
+                  {/* Day Label */}
                   <div className="mt-3 text-center">
                     <span
-                      className={`block text-xs font-bold ${
+                      className={`text-xs font-bold block ${
                         dayItem.isToday
-                          ? 'text-emerald-600 dark:text-emerald-400'
+                          ? 'text-emerald-600 dark:text-emerald-400 underline underline-offset-4'
                           : 'text-zinc-700 dark:text-zinc-300'
                       }`}
                     >
                       {dayItem.day}
                     </span>
-                    <span
-                      className={`block text-[11px] ${
-                        dayItem.isToday
-                          ? 'font-bold text-emerald-600 dark:text-emerald-400'
-                          : 'text-zinc-400'
-                      }`}
-                    >
-                      {dayItem.shortDate}
+                    <span className="text-[10px] text-zinc-400 block mt-0.5">
+                      {dayItem.total} {dayItem.total === 1 ? 'bk' : 'bks'}
                     </span>
-                    {dayItem.isToday && (
-                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 mt-0.5" />
-                    )}
                   </div>
                 </div>
               );
             })}
           </div>
 
-          <div className="flex items-center justify-between pt-3 border-t border-zinc-100 dark:border-zinc-800 text-xs text-zinc-500 dark:text-zinc-400">
-            <span>
-              Peak Day:{' '}
-              <strong className="text-zinc-800 dark:text-zinc-200">
-                Monday (4 reservations)
-              </strong>
-            </span>
-            <span>Horizon: 7 Days (Operating Hours 08:00 – 20:00)</span>
+          <div className="flex items-center justify-between text-xs text-zinc-400 pt-2 border-t border-zinc-100 dark:border-zinc-800/80">
+            <span>Operating Week Window (Mon - Sun)</span>
+            <span>Peak capacity dynamically calculated</span>
           </div>
         </div>
 
@@ -428,74 +555,71 @@ export function AdminDashboard({ initialData }: AdminDashboardProps) {
               </h2>
             </div>
             <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-              Distribution of reservation volume across asset classes.
+              Proportion of total reservation volume by facility type.
             </p>
           </div>
 
-          <div className="space-y-5">
+          <div className="space-y-4">
             {categoryDemand.map((cat) => {
               return (
-                <div key={cat.id} className="space-y-2">
+                <div key={cat.id} className="space-y-1.5">
                   <div className="flex items-center justify-between text-xs">
-                    <span className="font-semibold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5">
-                      <span>{cat.name}</span>
-                      <span className="text-zinc-400 font-normal">
-                        ({cat.resourceCount} assets)
-                      </span>
+                    <span className="font-semibold text-zinc-800 dark:text-zinc-200">
+                      {cat.name}
                     </span>
-                    <span className="font-bold text-zinc-900 dark:text-zinc-100">
-                      {cat.count} bookings ({cat.percentage}%)
+                    <span className="font-mono text-zinc-500 dark:text-zinc-400">
+                      {cat.count} bks ({cat.percentage}%)
                     </span>
                   </div>
-
-                  {/* Horizontal Bar */}
                   <div className="w-full h-2 rounded-full bg-zinc-100 dark:bg-zinc-800 overflow-hidden">
                     <div
-                      className={`h-full rounded-full transition-all duration-500 ${
-                        cat.percentage > 50
-                          ? 'bg-emerald-600'
-                          : cat.percentage > 20
-                          ? 'bg-purple-600'
-                          : 'bg-teal-600'
-                      }`}
-                      style={{ width: `${Math.max(2, cat.percentage)}%` }}
+                      className="h-full bg-emerald-600 rounded-full transition-all duration-500"
+                      style={{ width: `${Math.max(4, cat.percentage)}%` }}
                     />
+                  </div>
+                  <div className="flex justify-between text-[10px] text-zinc-400">
+                    <span>{cat.resourceCount} managed inventory units</span>
+                    <span>Demand factor: {cat.percentage > 35 ? 'High' : 'Normal'}</span>
                   </div>
                 </div>
               );
             })}
           </div>
 
-          <div className="pt-4 border-t border-zinc-100 dark:border-zinc-800">
-            <div className="p-3.5 rounded-xl bg-purple-50 dark:bg-purple-950/40 border border-purple-200/80 dark:border-purple-800/60 text-xs text-purple-900 dark:text-purple-200 space-y-1">
-              <span className="font-bold block">Highest Demand Category:</span>
-              <p className="text-[11px] opacity-90 leading-relaxed">
-                Meeting Spaces command 71% of total enterprise booking volume, driven by high utilization in Boardroom Alpha.
-              </p>
-            </div>
+          <div className="p-3.5 rounded-xl bg-purple-50/60 dark:bg-purple-950/40 border border-purple-200/80 dark:border-purple-800/60 text-xs text-purple-900 dark:text-purple-300">
+            <span className="font-bold block">Capacity Recommendation</span>
+            <p className="text-[11px] text-purple-700 dark:text-purple-400 mt-0.5">
+              Meeting rooms and private focus pods represent the highest scheduling density. Consider expanding workstation allocations.
+            </p>
           </div>
         </div>
       </div>
 
-      {/* Secondary Analytics Grid: Hourly Traffic Heatmap & Top Resources Ranking */}
+      {/* Hourly Contention & Most Demanded Assets */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Hourly Peak Traffic Heatmap */}
+        {/* Hourly Distribution / Contention Peaks */}
         <div className="p-6 rounded-2xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-xs space-y-5">
-          <div className="border-b border-zinc-100 dark:border-zinc-800 pb-4">
-            <div className="flex items-center gap-2">
-              <Clock className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-              <h2 className="text-base font-bold text-zinc-900 dark:text-white">
-                Hourly Peak Traffic Distribution
-              </h2>
+          <div className="border-b border-zinc-100 dark:border-zinc-800 pb-4 flex items-center justify-between">
+            <div>
+              <div className="flex items-center gap-2">
+                <Clock className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                <h2 className="text-base font-bold text-zinc-900 dark:text-white">
+                  Peak Traffic Distribution
+                </h2>
+              </div>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+                Concentration of reservations across daytime operating hours.
+              </p>
             </div>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-              Concentration of reservation hours across enterprise operating hours.
-            </p>
+
+            <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400">
+              08:00 – 20:00
+            </span>
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             {hourlyDistribution.map((slot, index) => {
-              const isPeak = slot.count >= 2;
+              const isPeak = slot.count > 1;
               return (
                 <div
                   key={index}
@@ -597,6 +721,267 @@ export function AdminDashboard({ initialData }: AdminDashboardProps) {
           </div>
         </div>
       </div>
+
+      {/* 5. Resource Inventory Directory & Asset Governance */}
+      <div className="p-6 rounded-2xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-xs space-y-6">
+        {/* Section Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-zinc-100 dark:border-zinc-800 pb-5">
+          <div>
+            <div className="flex items-center gap-2 text-xs font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider mb-1">
+              <Layers className="w-4 h-4" />
+              <span>Asset Governance</span>
+            </div>
+            <h2 className="text-xl font-bold text-zinc-900 dark:text-white">
+              Resource Inventory Directory
+            </h2>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+              Create, configure, modify, and retire workspace rooms, workstations, labs, and fleet assets.
+            </p>
+          </div>
+
+          <button
+            onClick={() => {
+              setResourceToEdit(null);
+              setIsModalOpen(true);
+            }}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm shadow-emerald-600/20 active:scale-95 transition-all cursor-pointer shrink-0"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Register New Resource</span>
+          </button>
+        </div>
+
+        {/* Filter and Search Bar */}
+        <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+          <div className="relative flex-1 max-w-md">
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search by asset name, code, or location..."
+              className="w-full pl-10 pr-4 py-2 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/40 text-xs text-zinc-900 dark:text-white placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Category Select */}
+            <select
+              value={selectedCategory}
+              onChange={(e) => setSelectedCategory(e.target.value)}
+              className="px-3 py-2 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-xs font-medium text-zinc-800 dark:text-zinc-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 cursor-pointer"
+            >
+              <option value="ALL">All Categories</option>
+              {activeCategories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+
+            {/* Status Select */}
+            <select
+              value={selectedStatus}
+              onChange={(e) => setSelectedStatus(e.target.value as 'ALL' | ResourceStatus)}
+              className="px-3 py-2 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-xs font-medium text-zinc-800 dark:text-zinc-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 cursor-pointer"
+            >
+              <option value="ALL">All Operational Statuses</option>
+              <option value={ResourceStatus.AVAILABLE}>Operational (Available)</option>
+              <option value={ResourceStatus.MAINTENANCE}>Maintenance</option>
+              <option value={ResourceStatus.RETIRED}>Archived / Retired</option>
+            </select>
+
+            <span className="text-[11px] font-medium text-zinc-400 px-2">
+              Showing {filteredResources.length} of {resourcesList.length}
+            </span>
+          </div>
+        </div>
+
+        {/* Assets Table */}
+        <div className="overflow-x-auto rounded-xl border border-zinc-200/80 dark:border-zinc-800">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="border-b border-zinc-200/80 dark:border-zinc-800 bg-zinc-50/70 dark:bg-zinc-800/40 text-[11px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                <th className="px-4 py-3">Resource Asset</th>
+                <th className="px-4 py-3">Category</th>
+                <th className="px-4 py-3">Location & Capacity</th>
+                <th className="px-4 py-3">Turnover & Approval</th>
+                <th className="px-4 py-3">Status</th>
+                <th className="px-4 py-3 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-zinc-200/60 dark:divide-zinc-800/80 text-xs">
+              {filteredResources.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-6 py-12 text-center text-zinc-400">
+                    <p className="font-semibold text-sm text-zinc-700 dark:text-zinc-300">
+                      No resources found
+                    </p>
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
+                      No assets match the active search or category filters.
+                    </p>
+                  </td>
+                </tr>
+              ) : (
+                filteredResources.map((res) => {
+                  const isRetired = res.status === ResourceStatus.RETIRED;
+
+                  return (
+                    <tr
+                      key={res.id}
+                      className="hover:bg-zinc-50/60 dark:hover:bg-zinc-800/30 transition-colors"
+                    >
+                      {/* Name & Code */}
+                      <td className="px-4 py-3.5">
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-200/80 dark:border-zinc-700/80 flex items-center justify-center text-zinc-600 dark:text-zinc-300 shrink-0">
+                            {getCategoryIcon(res.category?.iconName || 'Building2')}
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <Link
+                                href={`/resources/${res.id}`}
+                                className="font-bold text-zinc-900 dark:text-white hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors"
+                              >
+                                {res.name}
+                              </Link>
+                              <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200/60 dark:border-zinc-700/60">
+                                {res.code}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-zinc-400 truncate max-w-xs mt-0.5">
+                              {res.description}
+                            </p>
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Category */}
+                      <td className="px-4 py-3.5 whitespace-nowrap">
+                        <span className="inline-flex items-center gap-1.5 text-xs text-zinc-700 dark:text-zinc-300 font-medium">
+                          <span>{res.category?.name || 'Unassigned'}</span>
+                        </span>
+                      </td>
+
+                      {/* Location & Capacity */}
+                      <td className="px-4 py-3.5 whitespace-nowrap">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-1.5 text-zinc-700 dark:text-zinc-300">
+                            <MapPin className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
+                            <span>{res.location}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5 text-zinc-500 dark:text-zinc-400 text-[11px]">
+                            <Users className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
+                            <span>Up to {res.capacity} people</span>
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Turnover & Approval */}
+                      <td className="px-4 py-3.5 whitespace-nowrap">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-1.5 text-zinc-600 dark:text-zinc-400 text-[11px]">
+                            <Clock className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
+                            <span>
+                              {res.bufferMinutes > 0
+                                ? `${res.bufferMinutes} min buffer`
+                                : '0 min buffer'}
+                            </span>
+                          </div>
+                          {res.requiresApproval ? (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                              Approval Required
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400">
+                              Instant Auto-Book
+                            </span>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* Status */}
+                      <td className="px-4 py-3.5 whitespace-nowrap">
+                        {res.status === ResourceStatus.AVAILABLE && (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                            Operational
+                          </span>
+                        )}
+                        {res.status === ResourceStatus.MAINTENANCE && (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                            Maintenance
+                          </span>
+                        )}
+                        {res.status === ResourceStatus.RETIRED && (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-700">
+                            <span className="w-1.5 h-1.5 rounded-full bg-zinc-400" />
+                            Archived
+                          </span>
+                        )}
+                      </td>
+
+                      {/* Actions */}
+                      <td className="px-4 py-3.5 text-right whitespace-nowrap">
+                        <div className="inline-flex items-center gap-1.5">
+                          <button
+                            onClick={() => {
+                              setResourceToEdit(res);
+                              setIsModalOpen(true);
+                            }}
+                            className="p-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300 transition-colors cursor-pointer"
+                            title="Edit Resource Specs"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+
+                          <button
+                            onClick={() => handleToggleArchive(res)}
+                            disabled={isArchivingId === res.id}
+                            className={`p-1.5 rounded-lg border transition-colors cursor-pointer ${
+                              isRetired
+                                ? 'border-emerald-200 dark:border-emerald-800/80 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100'
+                                : 'border-zinc-200 dark:border-zinc-700 text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+                            }`}
+                            title={isRetired ? 'Restore to Operational' : 'Archive Resource'}
+                          >
+                            {isRetired ? (
+                              <ArchiveRestore className="w-3.5 h-3.5" />
+                            ) : (
+                              <Archive className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Resource Modal for Create & Edit */}
+      <ResourceFormModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        resourceToEdit={resourceToEdit}
+        categories={activeCategories}
+        onSuccess={() => {
+          handleRefreshResources();
+          router.refresh();
+        }}
+      />
     </div>
   );
 }

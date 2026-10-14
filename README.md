@@ -268,8 +268,6 @@ Individual test suites can also be executed directly:
 
 ```text
 Resource Resevation System/
-├── docs/
-│   └── ER_DIAGRAM.md               # Complete database schema & ER diagram documentation
 ├── prisma/
 │   ├── schema.prisma               # Prisma data models, enums, indexes, and relations
 │   └── seed.ts                     # Database seeder with realistic organizational datasets

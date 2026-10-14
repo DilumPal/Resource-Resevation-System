@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useTransition } from 'react';
+import React, { useState, useMemo, useTransition, useCallback, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -29,11 +29,16 @@ import {
   XCircle,
   FileText,
   TrendingUp,
+  Loader2,
 } from 'lucide-react';
 import { ResourceStatus, ReservationStatus } from '@prisma/client';
 import { useUserRole } from '@/context/UserRoleContext';
 import { useNotification } from '@/context/NotificationContext';
-import { updateReservationStatus, cancelReservation } from '@/actions/reservations';
+import {
+  updateReservationStatus,
+  cancelReservation,
+  getMasterCalendarData,
+} from '@/actions/reservations';
 import { toggleResourceMaintenance } from '@/actions/resources';
 import { getCategoryIcon } from '../resources/ResourceCard';
 import { BookingModal } from '../booking/BookingModal';
@@ -45,6 +50,32 @@ const START_HOUR = 8;  // 08:00 AM
 const END_HOUR = 20;   // 08:00 PM
 const TOTAL_HOURS = END_HOUR - START_HOUR; // 12 hours
 const TOTAL_MINUTES = TOTAL_HOURS * 60;   // 720 minutes
+
+// Timezone-safe UTC date shift function: avoids local midnight offset distortion
+function shiftDateString(dateStr: string, days: number): string {
+  const parts = dateStr.split('-').map(Number);
+  if (parts.length !== 3 || parts.some(isNaN)) {
+    const today = new Date();
+    const y = today.getFullYear();
+    const m = String(today.getMonth() + 1).padStart(2, '0');
+    const d = String(today.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  const [y, m, d] = parts;
+  const utcDate = new Date(Date.UTC(y, m - 1, d + days));
+  const newY = utcDate.getUTCFullYear();
+  const newM = String(utcDate.getUTCMonth() + 1).padStart(2, '0');
+  const newD = String(utcDate.getUTCDate()).padStart(2, '0');
+  return `${newY}-${newM}-${newD}`;
+}
+
+function getLocalTodayDateString(): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
 
 export interface CalendarResourceItem {
   id: string;
@@ -147,10 +178,20 @@ export function MasterCalendar({
   const { showToast } = useNotification();
   const [isPending, startTransition] = useTransition();
 
-  // Active Date State
+  // Active Date & Matrix Data State
   const [currentDateStr, setCurrentDateStr] = useState<string>(initialDate);
   const [reservationsList, setReservationsList] = useState<CalendarReservationItem[]>(initialReservations);
   const [maintenanceList, setMaintenanceList] = useState<CalendarMaintenanceItem[]>(initialMaintenance);
+  const [metrics, setMetrics] = useState(initialMetrics);
+  const [isFetchingDate, setIsFetchingDate] = useState<boolean>(false);
+
+  // Sync with initial props if loaded via SSR or external navigation
+  useEffect(() => {
+    setCurrentDateStr(initialDate);
+    setReservationsList(initialReservations);
+    setMaintenanceList(initialMaintenance);
+    setMetrics(initialMetrics);
+  }, [initialDate, initialReservations, initialMaintenance, initialMetrics]);
 
   // Filters State
   const [searchQuery, setSearchQuery] = useState('');
@@ -175,41 +216,110 @@ export function MasterCalendar({
   const [bookingInitialStartTime, setBookingInitialStartTime] = useState<string | undefined>(undefined);
   const [bookingInitialEndTime, setBookingInitialEndTime] = useState<string | undefined>(undefined);
 
-  // Parse current date
+  // Parse current date safely
   const parsedDate = useMemo(() => {
-    const [y, m, d] = currentDateStr.split('-').map(Number);
-    return new Date(y, m - 1, d);
+    const parts = currentDateStr.split('-').map(Number);
+    if (parts.length !== 3 || parts.some(isNaN)) {
+      return new Date();
+    }
+    const [y, m, d] = parts;
+    return new Date(y, m - 1, d, 12, 0, 0);
   }, [currentDateStr]);
 
   const formattedDateBanner = useMemo(() => {
-    return parsedDate.toLocaleDateString('en-US', {
+    const parts = currentDateStr.split('-').map(Number);
+    if (parts.length !== 3 || parts.some(isNaN)) return currentDateStr;
+    const [y, m, d] = parts;
+    const date = new Date(y, m - 1, d, 12, 0, 0);
+    return date.toLocaleDateString('en-US', {
       weekday: 'long',
       month: 'long',
       day: 'numeric',
       year: 'numeric',
     });
-  }, [parsedDate]);
+  }, [currentDateStr]);
+
+  // Sync browser address bar URL cleanly without full page unmount
+  const syncUrlDate = useCallback((dateStr: string) => {
+    if (typeof window === 'undefined') return;
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set('date', dateStr);
+      window.history.replaceState({}, '', url.toString());
+    } catch {
+      router.replace(`/admin/calendar?date=${dateStr}`, { scroll: false });
+    }
+  }, [router]);
+
+  // Client-side fetcher: instantly fetches timeline and metrics for chosen date and category
+  const fetchTimelineForDate = useCallback(
+    async (targetDate: string, category: string = selectedCategory) => {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) {
+        return;
+      }
+      setIsFetchingDate(true);
+      try {
+        const offset = new Date().getTimezoneOffset();
+        const res = await getMasterCalendarData(
+          targetDate,
+          category === 'ALL' ? undefined : category,
+          1,
+          offset
+        );
+        if (res.success) {
+          setReservationsList(res.reservations as unknown as CalendarReservationItem[]);
+          setMaintenanceList(res.maintenanceLogs as unknown as CalendarMaintenanceItem[]);
+          if (res.metrics) {
+            setMetrics(res.metrics);
+          }
+        } else {
+          showToast({
+            type: 'error',
+            title: 'Timeline Load Error',
+            message: res.error || 'Failed to retrieve timeline data for this date.',
+          });
+        }
+      } catch (err) {
+        console.error('Failed to load master calendar data:', err);
+        showToast({
+          type: 'error',
+          title: 'Connection Error',
+          message: 'Unable to communicate with the master calendar server.',
+        });
+      } finally {
+        setIsFetchingDate(false);
+      }
+    },
+    [selectedCategory, showToast]
+  );
 
   // Date Navigation Handlers
   const handleShiftDate = (days: number) => {
-    const nextDate = new Date(parsedDate);
-    nextDate.setDate(nextDate.getDate() + days);
-    const nextStr = nextDate.toISOString().split('T')[0];
+    const nextStr = shiftDateString(currentDateStr, days);
     setCurrentDateStr(nextStr);
-    router.push(`/admin/calendar?date=${nextStr}`);
+    syncUrlDate(nextStr);
+    fetchTimelineForDate(nextStr);
   };
 
   const handleJumpToday = () => {
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getLocalTodayDateString();
     setCurrentDateStr(todayStr);
-    router.push(`/admin/calendar?date=${todayStr}`);
+    syncUrlDate(todayStr);
+    fetchTimelineForDate(todayStr);
   };
 
   const handleDirectDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.value) {
-      setCurrentDateStr(e.target.value);
-      router.push(`/admin/calendar?date=${e.target.value}`);
+    const val = e.target.value;
+    setCurrentDateStr(val);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(val)) {
+      syncUrlDate(val);
+      fetchTimelineForDate(val);
     }
+  };
+
+  const handleCategorySelect = (newCategory: string) => {
+    setSelectedCategory(newCategory);
+    fetchTimelineForDate(currentDateStr, newCategory);
   };
 
   // Filter resources
@@ -473,11 +583,10 @@ export function MasterCalendar({
       return;
     }
 
-    const slotStart = new Date(parsedDate);
-    slotStart.setHours(hour, 0, 0, 0);
-
-    const slotEnd = new Date(parsedDate);
-    slotEnd.setHours(hour + 1, 0, 0, 0);
+    const parts = currentDateStr.split('-').map(Number);
+    const [y, m, d] = parts.length === 3 && !parts.some(isNaN) ? parts : [2026, 10, 14];
+    const slotStart = new Date(y, m - 1, d, hour, 0, 0, 0);
+    const slotEnd = new Date(y, m - 1, d, hour + 1, 0, 0, 0);
 
     setBookingTargetResource(res);
     setBookingInitialStartTime(slotStart.toISOString());
@@ -574,6 +683,12 @@ export function MasterCalendar({
               {formattedDateBanner}
             </span>
             <TimezoneBadge variant="pill" />
+            {isFetchingDate && (
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800/80 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 animate-in fade-in">
+                <Loader2 className="w-3 h-3 animate-spin text-emerald-600 dark:text-emerald-400" />
+                <span>Loading...</span>
+              </div>
+            )}
           </div>
 
           {/* Search & Category Filter */}
@@ -599,7 +714,7 @@ export function MasterCalendar({
 
             <select
               value={selectedCategory}
-              onChange={(e) => setSelectedCategory(e.target.value)}
+              onChange={(e) => handleCategorySelect(e.target.value)}
               className="px-3 py-1.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-xs font-medium text-zinc-700 dark:text-zinc-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 cursor-pointer"
             >
               <option value="ALL">All Categories</option>
@@ -670,7 +785,7 @@ export function MasterCalendar({
               {reservationsList.length}
             </span>
             <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold">
-              {initialMetrics.confirmedBookings} Confirmed
+              {metrics.confirmedBookings} Confirmed
             </span>
           </div>
         </div>
@@ -681,10 +796,10 @@ export function MasterCalendar({
           </span>
           <div className="mt-1 flex items-baseline justify-between">
             <span className="text-2xl font-extrabold text-amber-600 dark:text-amber-400">
-              {initialMetrics.pendingApprovals}
+              {metrics.pendingApprovals}
             </span>
             <span className="text-[11px] text-zinc-400">
-              {initialMetrics.pendingApprovals > 0 ? 'Requires Action' : 'All Clear'}
+              {metrics.pendingApprovals > 0 ? 'Requires Action' : 'All Clear'}
             </span>
           </div>
         </div>
@@ -695,7 +810,7 @@ export function MasterCalendar({
           </span>
           <div className="mt-1 flex items-baseline justify-between">
             <span className="text-2xl font-extrabold text-zinc-900 dark:text-white">
-              {initialMetrics.utilizationRate}%
+              {metrics.utilizationRate}%
             </span>
             <span className="text-[11px] text-zinc-400">08:00 - 20:00 Cap</span>
           </div>
@@ -704,7 +819,7 @@ export function MasterCalendar({
 
       {/* 3. Cross-Resource Gantt Timeline Grid */}
       <div className="rounded-2xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-xs overflow-hidden">
-        <div className="overflow-x-auto">
+        <div className={`overflow-x-auto transition-opacity duration-200 ${isFetchingDate ? 'opacity-60' : 'opacity-100'}`}>
           <div className="min-w-[1000px]">
             {/* Timeline Header Row (Hours Scale) */}
             <div className="flex border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50/80 dark:bg-zinc-800/50 sticky top-0 z-20">
@@ -1236,6 +1351,7 @@ export function MasterCalendar({
           initialStartTime={bookingInitialStartTime}
           initialEndTime={bookingInitialEndTime}
           onSuccess={() => {
+            fetchTimelineForDate(currentDateStr);
             router.refresh();
           }}
         />

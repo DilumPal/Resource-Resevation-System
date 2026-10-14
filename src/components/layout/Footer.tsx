@@ -28,11 +28,6 @@ export function Footer() {
               <span>Zero-Conflict Engine</span>
             </div>
 
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/60 font-medium text-[11px]">
-              <Database className="w-3 h-3 text-blue-500" />
-              <span>PostgreSQL & Prisma</span>
-            </div>
-
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700 font-medium text-[11px]">
               <Clock className="w-3 h-3 text-zinc-400" />
               <span>UTC+05:30 Compatible</span>

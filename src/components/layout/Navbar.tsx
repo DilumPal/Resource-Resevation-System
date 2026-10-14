@@ -120,10 +120,10 @@ export function Navbar() {
             <button
               onClick={handleToggleRole}
               title="Click to switch between Admin and Member roles"
-              className={`flex items-center gap-2.5 px-3 py-1.5 rounded-xl border text-xs font-medium transition-all duration-200 cursor-pointer shadow-xs ${
+              className={`group flex items-center gap-2.5 px-3 py-1.5 rounded-xl border text-xs font-medium transition-all duration-200 cursor-pointer shadow-xs ${
                 isAdmin
-                  ? "bg-purple-50 dark:bg-purple-950/40 border-purple-200 dark:border-purple-800/60 text-purple-900 dark:text-purple-200 hover:bg-purple-100"
-                  : "bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800/60 text-emerald-900 dark:text-emerald-200 hover:bg-emerald-100"
+                  ? "bg-purple-50/90 hover:bg-purple-100 border-purple-200 hover:border-purple-300 text-purple-950 dark:bg-purple-950/50 dark:hover:bg-purple-900/70 dark:border-purple-800/60 dark:hover:border-purple-600 dark:text-purple-100"
+                  : "bg-emerald-50/90 hover:bg-emerald-100 border-emerald-200 hover:border-emerald-300 text-emerald-950 dark:bg-emerald-950/50 dark:hover:bg-emerald-900/70 dark:border-emerald-800/60 dark:hover:border-emerald-600 dark:text-emerald-100"
               }`}
             >
               <div className="relative">
@@ -143,25 +143,25 @@ export function Navbar() {
 
               <div className="text-left hidden sm:block">
                 <div className="flex items-center gap-1.5">
-                  <span className="font-semibold text-zinc-900 dark:text-zinc-100">
+                  <span className="font-semibold text-zinc-900 dark:text-zinc-100 group-hover:text-black dark:group-hover:text-white transition-colors">
                     {currentUser.name}
                   </span>
                   <span
                     className={`text-[9px] uppercase px-1.5 py-0.2 rounded font-bold ${
                       isAdmin
-                        ? "bg-purple-200 dark:bg-purple-900/60 text-purple-800 dark:text-purple-300"
-                        : "bg-emerald-200 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-300"
+                        ? "bg-purple-200/90 dark:bg-purple-900/80 text-purple-900 dark:text-purple-200"
+                        : "bg-emerald-200/90 dark:bg-emerald-900/80 text-emerald-900 dark:text-emerald-200"
                     }`}
                   >
                     {role}
                   </span>
                 </div>
-                <p className="text-[10px] text-zinc-500 dark:text-zinc-400">
+                <p className="text-[10px] text-zinc-600 dark:text-zinc-400 group-hover:text-zinc-800 dark:group-hover:text-zinc-300 transition-colors">
                   {currentUser.department}
                 </p>
               </div>
 
-              <div className="flex items-center gap-1 text-[11px] text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 ml-1 pl-1 border-l border-zinc-200 dark:border-zinc-700">
+              <div className="flex items-center gap-1 text-[11px] text-zinc-400 group-hover:text-zinc-700 dark:group-hover:text-zinc-200 ml-1 pl-1 border-l border-zinc-200 dark:border-zinc-700 transition-colors">
                 <ArrowRightLeft className="w-3.5 h-3.5" />
                 <span className="hidden lg:inline text-[10px]">Switch</span>
               </div>

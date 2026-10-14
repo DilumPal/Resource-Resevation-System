@@ -6,7 +6,9 @@
     "dev": "next dev --webpack",
     "build": "next build --webpack",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "tsx src/lib/booking/business-rules.test.ts",
+    "test:all": "tsx src/lib/booking/business-rules.test.ts && tsx src/lib/timezone.test.ts && tsx src/lib/booking/conflict-engine.test.ts && tsx src/actions/crud.test.ts && tsx src/actions/approval.test.ts && tsx src/actions/maintenance.test.ts && tsx src/actions/calendar.test.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.4.1",

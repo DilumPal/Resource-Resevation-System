@@ -30,6 +30,8 @@ import { useNotification } from '@/context/NotificationContext';
 import { updateReservationStatus } from '@/actions/reservations';
 import { RejectReservationModal, RejectModalItem } from './RejectReservationModal';
 import { getCategoryIcon } from '../resources/ResourceCard';
+import { TimezoneBadge } from '../common/TimezoneBadge';
+import { formatLocalTimeRange, formatLocalDate } from '@/lib/date-utils';
 
 export interface PendingReservationItem {
   id: string;
@@ -147,24 +149,18 @@ export function ApprovalHub({
     });
   }, [historyList, searchQuery, selectedCategory]);
 
-  // Format date helper
+  // Format date helper using standardized local time helpers
   const formatSlotTime = (startStr: Date | string, endStr: Date | string) => {
     const start = new Date(startStr);
     const end = new Date(endStr);
 
-    const dateFormatted = start.toLocaleDateString('en-US', {
+    const dateFormatted = formatLocalDate(start, undefined, {
       weekday: 'short',
       month: 'short',
       day: 'numeric',
     });
 
-    const timeRange = `${start.toLocaleTimeString('en-US', {
-      hour: 'numeric',
-      minute: '2-digit',
-    })} - ${end.toLocaleTimeString('en-US', {
-      hour: 'numeric',
-      minute: '2-digit',
-    })}`;
+    const timeRange = formatLocalTimeRange(start, end);
 
     const diffHours = (end.getTime() - start.getTime()) / (1000 * 60 * 60);
     const durationFormatted =
@@ -313,8 +309,9 @@ export function ApprovalHub({
           </p>
         </div>
 
-        {/* Counter Badge */}
+        {/* Counter Badge & Timezone */}
         <div className="flex items-center gap-2 shrink-0">
+          <TimezoneBadge variant="pill" />
           <span
             className={`px-3 py-1.5 rounded-full text-xs font-bold border flex items-center gap-1.5 ${
               pendingList.length > 0

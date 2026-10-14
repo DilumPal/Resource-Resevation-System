@@ -12,6 +12,7 @@ import {
   Bell,
   ArrowDown,
 } from 'lucide-react';
+import { TimezoneBadge } from '../common/TimezoneBadge';
 
 export function HeroSection() {
   const { currentUser, role, isAdmin } = useUserRole();
@@ -114,6 +115,9 @@ export function HeroSection() {
                   Department: {currentUser.department} • Click &ldquo;Switch&rdquo; in the header anytime to toggle Admin or Member view.
                 </p>
               </div>
+            </div>
+            <div className="shrink-0 hidden sm:block">
+              <TimezoneBadge variant="pill" />
             </div>
           </div>
         </div>

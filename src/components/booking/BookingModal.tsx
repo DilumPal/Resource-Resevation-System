@@ -26,6 +26,7 @@ import {
 } from '@/actions/reservations';
 import { useUserRole } from '@/context/UserRoleContext';
 import { useNotification } from '@/context/NotificationContext';
+import { TimezoneBadge } from '../common/TimezoneBadge';
 
 export interface BookingModalProps {
   isOpen: boolean;
@@ -461,6 +462,10 @@ export function BookingModal({
 
           {/* Date & Time Picker Group */}
           <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100">Schedule & Time Window</span>
+              <TimezoneBadge variant="pill" />
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               {/* Date Input */}
               <div className="sm:col-span-1">

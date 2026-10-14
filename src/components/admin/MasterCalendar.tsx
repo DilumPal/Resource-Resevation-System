@@ -38,6 +38,7 @@ import { toggleResourceMaintenance } from '@/actions/resources';
 import { getCategoryIcon } from '../resources/ResourceCard';
 import { BookingModal } from '../booking/BookingModal';
 import { RejectReservationModal, RejectModalItem } from './RejectReservationModal';
+import { TimezoneBadge } from '../common/TimezoneBadge';
 
 // Operating hours window
 const START_HOUR = 8;  // 08:00 AM
@@ -572,6 +573,7 @@ export function MasterCalendar({
             <span className="text-xs font-bold text-zinc-800 dark:text-zinc-200 px-1 hidden sm:inline-block">
               {formattedDateBanner}
             </span>
+            <TimezoneBadge variant="pill" />
           </div>
 
           {/* Search & Category Filter */}

@@ -10,6 +10,11 @@ import {
 } from '@/lib/booking/conflict-engine';
 import { ReservationStatus, Role } from '@prisma/client';
 import { z } from 'zod';
+import {
+  parseLocalDateBoundary,
+  toUTCISOString,
+  formatLocalTimeRange,
+} from '@/lib/date-utils';
 
 function safeRevalidatePath(path: string) {
   try {
@@ -79,7 +84,8 @@ export interface AvailableSlotsResult {
  */
 export async function getAvailableSlots(
   resourceId: string,
-  dateStr: string
+  dateStr: string,
+  clientTimezoneOffset?: number
 ): Promise<AvailableSlotsResult> {
   try {
     const resource = await prisma.resource.findUnique({
@@ -106,24 +112,11 @@ export async function getAvailableSlots(
       };
     }
 
-    // Parse target date boundaries (00:00:00 to 23:59:59.999)
-    const targetDate = new Date(dateStr);
-    if (isNaN(targetDate.getTime())) {
-      return {
-        success: false,
-        slots: [],
-        bookedIntervals: [],
-        maintenanceIntervals: [],
-        error: 'Invalid date provided.',
-      };
-    }
-
-    const year = targetDate.getFullYear();
-    const month = targetDate.getMonth();
-    const day = targetDate.getDate();
-
-    const dayStart = new Date(year, month, day, 0, 0, 0, 0);
-    const dayEnd = new Date(year, month, day, 23, 59, 59, 999);
+    // Standardized date boundary calculation anchored to client's timezone in UTC
+    const { start: dayStart, end: dayEnd, year, month, day } = parseLocalDateBoundary(
+      dateStr,
+      clientTimezoneOffset
+    );
 
     // Fetch confirmed & pending reservations for this day
     const bufferMs = (resource.bufferMinutes || 0) * 60 * 1000;
@@ -170,21 +163,35 @@ export async function getAvailableSlots(
       endTime: m.endTime ? m.endTime.toISOString() : null,
     }));
 
-    // Generate 30-minute slots between 08:00 and 20:00
+    // Generate 30-minute slots between 08:00 and 20:00 aligned to client operating hours
     const slots: TimeSlot[] = [];
     const now = new Date();
 
     const operatingStartHour = 8;
     const operatingEndHour = 20;
 
+    const baseLocalMidnightMs = clientTimezoneOffset !== undefined
+      ? Date.UTC(year, month - 1, day, 0, 0, 0, 0) + (clientTimezoneOffset * 60 * 1000)
+      : new Date(year, month - 1, day, 0, 0, 0, 0).getTime();
+
     for (let hour = operatingStartHour; hour < operatingEndHour; hour++) {
       for (const minute of [0, 30]) {
-        const slotStart = new Date(year, month, day, hour, minute, 0, 0);
+        const slotStart = new Date(baseLocalMidnightMs + (hour * 60 + minute) * 60 * 1000);
         const slotEnd = new Date(slotStart.getTime() + 30 * 60 * 1000);
 
-        const formatHours = (d: Date) =>
-          d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
-        const formattedTime = `${formatHours(slotStart)} - ${formatHours(slotEnd)}`;
+        const padH = (h: number) => {
+          const ampm = h >= 12 ? 'PM' : 'AM';
+          const disp = h % 12 === 0 ? 12 : h % 12;
+          return { disp, ampm };
+        };
+        const sInfo = padH(hour);
+        const sMin = minute === 0 ? '00' : '30';
+        const eTotalMin = hour * 60 + minute + 30;
+        const eH = Math.floor(eTotalMin / 60);
+        const eM = eTotalMin % 60;
+        const eInfo = padH(eH);
+        const eMin = eM === 0 ? '00' : '30';
+        const formattedTime = `${sInfo.disp}:${sMin} ${sInfo.ampm} - ${eInfo.disp}:${eMin} ${eInfo.ampm}`;
 
         const isPast = slotStart.getTime() < now.getTime();
 
@@ -846,32 +853,13 @@ export async function getApprovalQueueData() {
 export async function getMasterCalendarData(
   targetDateStr?: string,
   categoryId?: string,
-  viewDays: number = 1
+  viewDays: number = 1,
+  clientTimezoneOffset?: number
 ) {
   try {
-    const baseDate = targetDateStr ? new Date(targetDateStr) : new Date();
-    const validBase = isNaN(baseDate.getTime()) ? new Date() : baseDate;
-
-    // Window boundaries: 00:00:00 of start date to 23:59:59 of end date
-    const startDate = new Date(
-      validBase.getFullYear(),
-      validBase.getMonth(),
-      validBase.getDate(),
-      0,
-      0,
-      0,
-      0
-    );
-
-    const endDate = new Date(
-      validBase.getFullYear(),
-      validBase.getMonth(),
-      validBase.getDate() + (viewDays - 1),
-      23,
-      59,
-      59,
-      999
-    );
+    const dateInput = targetDateStr || new Date().toISOString().slice(0, 10);
+    const { start: startDate, year, month, day } = parseLocalDateBoundary(dateInput, clientTimezoneOffset);
+    const endDate = new Date(startDate.getTime() + viewDays * 24 * 60 * 60 * 1000 - 1);
 
     const [resources, reservations, maintenanceLogs, categories] = await Promise.all([
       prisma.resource.findMany({
@@ -970,9 +958,11 @@ export async function getMasterCalendarData(
     const totalCapacityMinutes = operationalResources * 12 * 60 * viewDays;
     const utilizationRate = Math.min(100, Math.round((totalBookedMinutes / totalCapacityMinutes) * 100));
 
+    const formattedDate = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+
     return {
       success: true,
-      date: validBase.toISOString().split('T')[0],
+      date: formattedDate,
       startDate: startDate.toISOString(),
       endDate: endDate.toISOString(),
       resources,

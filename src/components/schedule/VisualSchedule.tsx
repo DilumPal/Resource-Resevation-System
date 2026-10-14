@@ -33,6 +33,7 @@ import { ResourceData, getCategoryIcon, getLiveStatus } from '../resources/Resou
 import { useUserRole } from '@/context/UserRoleContext';
 import { useNotification } from '@/context/NotificationContext';
 import { BookingModal } from '../booking/BookingModal';
+import { TimezoneBadge } from '../common/TimezoneBadge';
 
 interface VisualScheduleProps {
   resources: ResourceData[];
@@ -154,7 +155,11 @@ export function VisualSchedule({
     try {
       if (view === 'day') {
         const dateKey = formatDateKey(currentDate);
-        const res = await getAvailableSlots(selectedResourceId, dateKey);
+        const res = await getAvailableSlots(
+          selectedResourceId,
+          dateKey,
+          new Date().getTimezoneOffset()
+        );
         if (res.success) {
           setSlots(res.slots);
         } else {
@@ -435,17 +440,20 @@ export function VisualSchedule({
           </div>
         </div>
 
-        {liveStatus && (
-          <div className="flex items-center gap-2">
-            <span className="text-zinc-500 dark:text-zinc-400">Current Status:</span>
-            <span
-              className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${liveStatus.badgeClass}`}
-            >
-              <span className={`w-1.5 h-1.5 rounded-full ${liveStatus.dotClass}`} />
-              {liveStatus.label}
-            </span>
-          </div>
-        )}
+        <div className="flex items-center gap-3">
+          {liveStatus && (
+            <div className="flex items-center gap-2">
+              <span className="text-zinc-500 dark:text-zinc-400">Current Status:</span>
+              <span
+                className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${liveStatus.badgeClass}`}
+              >
+                <span className={`w-1.5 h-1.5 rounded-full ${liveStatus.dotClass}`} />
+                {liveStatus.label}
+              </span>
+            </div>
+          )}
+          <TimezoneBadge variant="pill" />
+        </div>
       </div>
 
       {/* Main Schedule Visual Grid */}

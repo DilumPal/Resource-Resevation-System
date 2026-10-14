@@ -33,6 +33,8 @@ import { useNotification } from '@/context/NotificationContext';
 import { getUserReservations, cancelReservation } from '@/actions/reservations';
 import { ResourceData, getCategoryIcon } from '../resources/ResourceCard';
 import { BookingModal } from '../booking/BookingModal';
+import { TimezoneBadge } from '../common/TimezoneBadge';
+import { formatLocalDateTimeRange } from '@/lib/date-utils';
 
 interface ReservationItem {
   id: string;
@@ -191,40 +193,9 @@ export function MyReservationsView({ resources }: MyReservationsViewProps) {
     );
   }, [activeTab, upcomingList, pendingList, pastList, cancelledList, searchQuery]);
 
-  // Format date helper
+  // Format date helper using standardized local timezone formatter
   const formatDateTimeRange = (start: Date | string, end: Date | string) => {
-    const s = new Date(start);
-    const e = new Date(end);
-
-    const dateStr = s.toLocaleDateString('en-US', {
-      weekday: 'short',
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    });
-
-    const startTimeStr = s.toLocaleTimeString('en-US', {
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true,
-    });
-
-    const endTimeStr = e.toLocaleTimeString('en-US', {
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true,
-    });
-
-    // Duration in minutes
-    const durationMin = Math.round((e.getTime() - s.getTime()) / (1000 * 60));
-    const hours = Math.floor(durationMin / 60);
-    const mins = durationMin % 60;
-    let durationLabel = '';
-    if (hours > 0 && mins > 0) durationLabel = `${hours}h ${mins}m`;
-    else if (hours > 0) durationLabel = `${hours}h`;
-    else durationLabel = `${mins}m`;
-
-    return { dateStr, timeStr: `${startTimeStr} – ${endTimeStr}`, durationLabel };
+    return formatLocalDateTimeRange(start, end);
   };
 
   return (
@@ -354,24 +325,27 @@ export function MyReservationsView({ resources }: MyReservationsViewProps) {
           </button>
         </div>
 
-        {/* Search Input Filter */}
-        <div className="relative min-w-[220px]">
-          <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Filter reservations..."
-            className="w-full pl-8 pr-7 py-1.5 text-xs rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/60 text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-          />
-          {searchQuery && (
-            <button
-              onClick={() => setSearchQuery('')}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 p-0.5"
-            >
-              <X className="w-3 h-3" />
-            </button>
-          )}
+        {/* Search Input Filter & Timezone Badge */}
+        <div className="flex items-center gap-2.5 flex-wrap sm:flex-nowrap">
+          <div className="relative min-w-[200px] flex-1 sm:flex-initial">
+            <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Filter reservations..."
+              className="w-full pl-8 pr-7 py-1.5 text-xs rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/60 text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 p-0.5"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+          <TimezoneBadge variant="pill" />
         </div>
       </div>
 

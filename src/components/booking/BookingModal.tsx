@@ -27,6 +27,7 @@ import {
 import { useUserRole } from '@/context/UserRoleContext';
 import { useNotification } from '@/context/NotificationContext';
 import { TimezoneBadge } from '../common/TimezoneBadge';
+import { BUSINESS_RULES } from '@/lib/booking/conflict-engine';
 
 export interface BookingModalProps {
   isOpen: boolean;
@@ -79,13 +80,22 @@ export function BookingModal({
     return resources[0]?.id || '';
   });
 
-  // Today as YYYY-MM-DD
+  // Today as YYYY-MM-DD and max 90-day booking horizon
   const todayStr = useMemo(() => {
     const now = new Date();
     const y = now.getFullYear();
     const m = String(now.getMonth() + 1).padStart(2, '0');
     const d = String(now.getDate()).padStart(2, '0');
     return `${y}-${m}-${d}`;
+  }, []);
+
+  const maxDateStr = useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + BUSINESS_RULES.MAX_ADVANCE_DAYS);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
   }, []);
 
   // Selected Date
@@ -225,7 +235,7 @@ export function BookingModal({
   useEffect(() => {
     if (!isOpen || !selectedResourceId || !selectedDate) return;
 
-    // Fast client-side preliminary checks
+    // Fast client-side preliminary checks enforcing SyncSpace business rules
     if (durationMinutes <= 0) {
       setConflictResult({
         hasConflict: true,
@@ -236,12 +246,43 @@ export function BookingModal({
       return;
     }
 
-    if (startDateTime.getTime() < Date.now() - 60 * 1000) {
+    if (durationMinutes < BUSINESS_RULES.MIN_DURATION_MINUTES) {
       setConflictResult({
         hasConflict: true,
         canBook: false,
-        message: 'Cannot schedule a reservation in the past.',
+        message: `Reservation duration must be at least ${BUSINESS_RULES.MIN_DURATION_MINUTES} minutes.`,
+        conflictType: 'INVALID_DURATION',
+      });
+      return;
+    }
+
+    if (durationMinutes > BUSINESS_RULES.MAX_DURATION_MINUTES) {
+      setConflictResult({
+        hasConflict: true,
+        canBook: false,
+        message: `Single reservation duration cannot exceed ${BUSINESS_RULES.MAX_DURATION_MINUTES / 60} hours (${BUSINESS_RULES.MAX_DURATION_MINUTES} minutes).`,
+        conflictType: 'INVALID_DURATION',
+      });
+      return;
+    }
+
+    if (startDateTime.getTime() < Date.now() - BUSINESS_RULES.GRACE_PERIOD_MS) {
+      setConflictResult({
+        hasConflict: true,
+        canBook: false,
+        message: 'Cannot schedule a reservation in the past. Please select an upcoming slot.',
         conflictType: 'PAST_TIME',
+      });
+      return;
+    }
+
+    const maxAdvanceMs = BUSINESS_RULES.MAX_ADVANCE_DAYS * 24 * 60 * 60 * 1000;
+    if (startDateTime.getTime() > Date.now() + maxAdvanceMs) {
+      setConflictResult({
+        hasConflict: true,
+        canBook: false,
+        message: `Reservations cannot be booked more than ${BUSINESS_RULES.MAX_ADVANCE_DAYS} days in advance.`,
+        conflictType: 'INVALID_DURATION',
       });
       return;
     }
@@ -304,6 +345,33 @@ export function BookingModal({
         type: 'warning',
         title: 'Title Required',
         message: 'Please provide a descriptive reservation title.',
+      });
+      return;
+    }
+
+    if (durationMinutes < BUSINESS_RULES.MIN_DURATION_MINUTES) {
+      showToast({
+        type: 'error',
+        title: 'Minimum Duration Required',
+        message: `Reservation duration must be at least ${BUSINESS_RULES.MIN_DURATION_MINUTES} minutes.`,
+      });
+      return;
+    }
+
+    if (durationMinutes > BUSINESS_RULES.MAX_DURATION_MINUTES) {
+      showToast({
+        type: 'error',
+        title: 'Maximum Duration Exceeded',
+        message: `Single reservation duration cannot exceed ${BUSINESS_RULES.MAX_DURATION_MINUTES / 60} hours.`,
+      });
+      return;
+    }
+
+    if (startDateTime.getTime() < Date.now() - BUSINESS_RULES.GRACE_PERIOD_MS) {
+      showToast({
+        type: 'error',
+        title: 'Past Time Selected',
+        message: 'Cannot schedule a reservation in the past. Please select an upcoming slot.',
       });
       return;
     }
@@ -476,6 +544,7 @@ export function BookingModal({
                   <input
                     type="date"
                     min={todayStr}
+                    max={maxDateStr}
                     value={selectedDate}
                     onChange={(e) => setSelectedDate(e.target.value)}
                     className="w-full px-3 py-2 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-xs font-semibold text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-xs cursor-pointer"
@@ -543,9 +612,21 @@ export function BookingModal({
                 })}
               </div>
 
-              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-100 dark:bg-zinc-800 text-xs font-mono font-bold text-zinc-700 dark:text-zinc-300">
-                <Timer className="w-3 h-3 text-zinc-400" />
-                <span>{durationLabel}</span>
+              <div className="flex items-center gap-2">
+                <div
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono font-bold ${
+                    durationMinutes < BUSINESS_RULES.MIN_DURATION_MINUTES ||
+                    durationMinutes > BUSINESS_RULES.MAX_DURATION_MINUTES
+                      ? 'bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-800'
+                      : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300'
+                  }`}
+                >
+                  <Timer className="w-3 h-3 text-zinc-400" />
+                  <span>{durationLabel}</span>
+                </div>
+                <span className="text-[11px] text-zinc-400 hidden sm:inline-block">
+                  (Min: {BUSINESS_RULES.MIN_DURATION_MINUTES}m · Max: {BUSINESS_RULES.MAX_DURATION_MINUTES / 60}h)
+                </span>
               </div>
             </div>
           </div>

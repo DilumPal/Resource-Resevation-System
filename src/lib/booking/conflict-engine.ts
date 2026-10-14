@@ -55,13 +55,34 @@ export class BookingConflictError extends Error {
 }
 
 /**
- * Validates basic time ranges (start before end, duration, non-past).
+ * Enterprise Business Rules for SyncSpace Reservations
+ */
+export const BUSINESS_RULES = {
+  MIN_DURATION_MINUTES: 15,    // Minimum reservation session is 15 minutes
+  MAX_DURATION_MINUTES: 480,   // Maximum single reservation is 8 hours (480 minutes)
+  MAX_ADVANCE_DAYS: 90,        // Maximum advance booking horizon is 90 days
+  GRACE_PERIOD_MS: 60 * 1000,  // 60-second grace window for clock skew / network latency
+} as const;
+
+/**
+ * Validates business rules for time ranges:
+ * 1. Valid date formatting.
+ * 2. Start time must be strictly before end time.
+ * 3. Minimum duration limit (15 minutes).
+ * 4. Maximum duration limit (8 hours / 480 minutes).
+ * 5. Maximum advance booking limit (90 days).
+ * 6. No past bookings (with 60-second clock skew grace period).
  */
 export function validateTimeRange(
   startTime: Date,
   endTime: Date,
   allowPast: boolean = false
-): { valid: boolean; errorType?: 'INVALID_DURATION' | 'PAST_TIME'; message?: string } {
+): {
+  valid: boolean;
+  errorType?: 'INVALID_DURATION' | 'PAST_TIME';
+  message?: string;
+  durationMinutes?: number;
+} {
   const start = new Date(startTime).getTime();
   const end = new Date(endTime).getTime();
   const now = Date.now();
@@ -82,25 +103,8 @@ export function validateTimeRange(
     };
   }
 
-  const durationMinutes = (end - start) / (1000 * 60);
-  if (durationMinutes < 5) {
-    return {
-      valid: false,
-      errorType: 'INVALID_DURATION',
-      message: 'Reservation duration must be at least 5 minutes.',
-    };
-  }
-
-  if (durationMinutes > 24 * 60) {
-    return {
-      valid: false,
-      errorType: 'INVALID_DURATION',
-      message: 'Single reservation duration cannot exceed 24 hours.',
-    };
-  }
-
-  // 1-minute grace period for network latency / clock skew
-  if (!allowPast && start < now - 60 * 1000) {
+  // 1. No past bookings rule (with 60s grace allowance for clock skew)
+  if (!allowPast && start < now - BUSINESS_RULES.GRACE_PERIOD_MS) {
     return {
       valid: false,
       errorType: 'PAST_TIME',
@@ -108,7 +112,40 @@ export function validateTimeRange(
     };
   }
 
-  return { valid: true };
+  const durationMinutes = Math.round((end - start) / (1000 * 60));
+
+  // 2. Minimum duration rule (15 min)
+  if (durationMinutes < BUSINESS_RULES.MIN_DURATION_MINUTES) {
+    return {
+      valid: false,
+      errorType: 'INVALID_DURATION',
+      message: `Reservation duration must be at least ${BUSINESS_RULES.MIN_DURATION_MINUTES} minutes.`,
+      durationMinutes,
+    };
+  }
+
+  // 3. Maximum duration rule (8 hours / 480 min)
+  if (durationMinutes > BUSINESS_RULES.MAX_DURATION_MINUTES) {
+    return {
+      valid: false,
+      errorType: 'INVALID_DURATION',
+      message: `Single reservation duration cannot exceed ${BUSINESS_RULES.MAX_DURATION_MINUTES / 60} hours (${BUSINESS_RULES.MAX_DURATION_MINUTES} minutes).`,
+      durationMinutes,
+    };
+  }
+
+  // 4. Maximum advance booking horizon rule (90 days)
+  const maxAdvanceMs = BUSINESS_RULES.MAX_ADVANCE_DAYS * 24 * 60 * 60 * 1000;
+  if (start > now + maxAdvanceMs) {
+    return {
+      valid: false,
+      errorType: 'INVALID_DURATION',
+      message: `Reservations cannot be booked more than ${BUSINESS_RULES.MAX_ADVANCE_DAYS} days in advance.`,
+      durationMinutes,
+    };
+  }
+
+  return { valid: true, durationMinutes };
 }
 
 /**

@@ -119,7 +119,6 @@ export async function toggleResourceMaintenance(
           where: {
             resourceId,
             status: { in: [MaintenanceStatus.IN_PROGRESS, MaintenanceStatus.SCHEDULED] },
-            endTime: null,
           },
           data: {
             status: MaintenanceStatus.COMPLETED,
@@ -624,7 +623,11 @@ export async function getAdminDashboardStats() {
       }),
       prisma.maintenanceLog.findMany({
         where: { status: { in: ['IN_PROGRESS', 'SCHEDULED'] } },
-        include: { resource: { select: { name: true, code: true } } },
+        include: {
+          resource: {
+            select: { id: true, name: true, code: true, location: true },
+          },
+        },
         orderBy: { startTime: 'asc' },
       }),
       prisma.reservation.findMany({

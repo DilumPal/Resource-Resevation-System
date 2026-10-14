@@ -33,13 +33,16 @@ import {
   ArchiveRestore,
   Search,
   X,
+  Wrench,
+  WrenchOff,
 } from 'lucide-react';
 import { ResourceStatus } from '@prisma/client';
 import { useUserRole } from '@/context/UserRoleContext';
 import { useNotification } from '@/context/NotificationContext';
 import { ResourceData, getCategoryIcon } from '../resources/ResourceCard';
 import { ResourceFormModal, CategoryItem } from './ResourceFormModal';
-import { archiveResource, getResources } from '@/actions/resources';
+import { MaintenanceModal } from './MaintenanceModal';
+import { archiveResource, getResources, toggleResourceMaintenance } from '@/actions/resources';
 
 export interface AdminStatsData {
   stats: {
@@ -104,9 +107,13 @@ export interface AdminStatsData {
     startTime: Date | string;
     endTime: Date | string | null;
     status: string;
+    performedBy?: string | null;
+    notes?: string | null;
     resource: {
+      id?: string;
       name: string;
       code: string;
+      location?: string;
     };
   }>;
   categories: Array<{
@@ -146,10 +153,15 @@ export function AdminDashboard({
   const [selectedCategory, setSelectedCategory] = useState('ALL');
   const [selectedStatus, setSelectedStatus] = useState<'ALL' | ResourceStatus>('ALL');
 
-  // Modal State
+  // Resource Form Modal State (Create / Edit)
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [resourceToEdit, setResourceToEdit] = useState<ResourceData | null>(null);
   const [isArchivingId, setIsArchivingId] = useState<string | null>(null);
+
+  // Maintenance Modal State
+  const [isMaintenanceModalOpen, setIsMaintenanceModalOpen] = useState(false);
+  const [maintenanceModalResource, setMaintenanceModalResource] = useState<ResourceData | null>(null);
+  const [isTogglingMaintenanceId, setIsTogglingMaintenanceId] = useState<string | null>(null);
 
   const activeCategories: CategoryItem[] = useMemo(() => {
     if (categories && categories.length > 0) return categories;
@@ -174,6 +186,53 @@ export function AdminDashboard({
     const res = await getResources();
     if (res.success && res.resources) {
       setResourcesList(res.resources as unknown as ResourceData[]);
+    }
+  };
+
+  const handleOpenMaintenanceModal = (res: ResourceData) => {
+    setMaintenanceModalResource(res);
+    setIsMaintenanceModalOpen(true);
+  };
+
+  const handleRestoreOperational = async (res: ResourceData | { id: string; name: string }) => {
+    setIsTogglingMaintenanceId(res.id);
+
+    // Optimistic update
+    setResourcesList((prev) =>
+      prev.map((item) =>
+        item.id === res.id ? { ...item, status: ResourceStatus.AVAILABLE } : item
+      )
+    );
+
+    const result = await toggleResourceMaintenance(
+      res.id,
+      ResourceStatus.AVAILABLE,
+      undefined,
+      currentUser.id
+    );
+
+    setIsTogglingMaintenanceId(null);
+
+    if (result.success) {
+      showToast({
+        type: 'success',
+        title: 'Operational Status Restored',
+        message: `Resource "${res.name}" has returned to service and is available for booking.`,
+      });
+      handleRefreshResources();
+      router.refresh();
+    } else {
+      // Revert on failure
+      setResourcesList((prev) =>
+        prev.map((item) =>
+          item.id === res.id ? { ...item, status: ResourceStatus.MAINTENANCE } : item
+        )
+      );
+      showToast({
+        type: 'error',
+        title: 'Action Failed',
+        message: result.error || 'Failed to restore operational status.',
+      });
     }
   };
 
@@ -722,7 +781,152 @@ export function AdminDashboard({
         </div>
       </div>
 
-      {/* 5. Resource Inventory Directory & Asset Governance */}
+      {/* 5. Active Maintenance Queue & Downtime Governance */}
+      <div className="p-6 rounded-2xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-xs space-y-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-zinc-100 dark:border-zinc-800 pb-4">
+          <div>
+            <div className="flex items-center gap-2 text-xs font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider mb-1">
+              <Wrench className="w-4 h-4" />
+              <span>Downtime Governance</span>
+            </div>
+            <h2 className="text-xl font-bold text-zinc-900 dark:text-white">
+              Active Maintenance Queue
+            </h2>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+              Managed facilities and equipment currently out of service for servicing, repair, or inspection.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span
+              className={`px-3 py-1 rounded-full text-xs font-bold border ${
+                activeMaintenanceLogs.length > 0
+                  ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800'
+                  : 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+              }`}
+            >
+              {activeMaintenanceLogs.length === 1
+                ? '1 Asset Out of Service'
+                : `${activeMaintenanceLogs.length} Assets Out of Service`}
+            </span>
+          </div>
+        </div>
+
+        {activeMaintenanceLogs.length === 0 ? (
+          <div className="p-8 rounded-xl border border-dashed border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/20 text-center">
+            <div className="w-10 h-10 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 flex items-center justify-center text-emerald-600 dark:text-emerald-400 mx-auto mb-2.5">
+              <CheckCircle2 className="w-5 h-5" />
+            </div>
+            <p className="text-sm font-bold text-zinc-900 dark:text-white">
+              All Managed Resources Operational
+            </p>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 max-w-md mx-auto mt-1">
+              There are zero scheduled outages or active maintenance blocks. All assets are available for reservation in accordance with governance policies.
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {activeMaintenanceLogs.map((log) => {
+              const startFormatted = new Date(log.startTime).toLocaleString('en-US', {
+                month: 'short',
+                day: 'numeric',
+                hour: 'numeric',
+                minute: '2-digit',
+              });
+
+              const endFormatted = log.endTime
+                ? new Date(log.endTime).toLocaleString('en-US', {
+                    month: 'short',
+                    day: 'numeric',
+                    hour: 'numeric',
+                    minute: '2-digit',
+                  })
+                : 'Indefinite / Ongoing';
+
+              const resourceTarget = resourcesList.find((r) => r.id === log.resource?.id) || {
+                id: log.resource?.id || log.id,
+                name: log.resource?.name || 'Resource',
+              };
+
+              return (
+                <div
+                  key={log.id}
+                  className="p-4 rounded-xl border border-amber-200/90 dark:border-amber-900/60 bg-amber-50/40 dark:bg-amber-950/20 flex flex-col justify-between space-y-3"
+                >
+                  <div className="space-y-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-bold text-sm text-zinc-900 dark:text-white">
+                            {log.resource.name}
+                          </span>
+                          <span className="font-mono text-[10px] font-bold px-1.5 py-0.2 rounded bg-amber-200/80 dark:bg-amber-900/80 text-amber-900 dark:text-amber-200">
+                            {log.resource.code}
+                          </span>
+                        </div>
+                        {log.resource.location && (
+                          <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5">
+                            {log.resource.location}
+                          </p>
+                        )}
+                      </div>
+
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-300 shrink-0">
+                        IN PROGRESS
+                      </span>
+                    </div>
+
+                    <div className="p-2.5 rounded-lg bg-white dark:bg-zinc-900 border border-amber-200/60 dark:border-amber-900/40 text-xs">
+                      <span className="font-semibold text-zinc-800 dark:text-zinc-200 block">
+                        {log.reason}
+                      </span>
+                      {log.notes && (
+                        <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1 italic">
+                          &quot;{log.notes}&quot;
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="space-y-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+                      <div className="flex items-center justify-between">
+                        <span>Started:</span>
+                        <span className="font-medium text-zinc-700 dark:text-zinc-300">
+                          {startFormatted}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span>Estimated Return:</span>
+                        <span className="font-medium text-zinc-700 dark:text-zinc-300">
+                          {endFormatted}
+                        </span>
+                      </div>
+                      {log.performedBy && (
+                        <div className="flex items-center justify-between">
+                          <span>Technician:</span>
+                          <span className="font-medium text-zinc-700 dark:text-zinc-300">
+                            {log.performedBy}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => handleRestoreOperational(resourceTarget as ResourceData)}
+                    disabled={isTogglingMaintenanceId === resourceTarget.id}
+                    className="w-full inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white text-xs font-bold shadow-sm shadow-emerald-600/20 transition-all cursor-pointer"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>Complete &amp; Restore to Service</span>
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* 6. Resource Inventory Directory & Asset Governance */}
       <div className="p-6 rounded-2xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-xs space-y-6">
         {/* Section Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-zinc-100 dark:border-zinc-800 pb-5">
@@ -833,6 +1037,7 @@ export function AdminDashboard({
               ) : (
                 filteredResources.map((res) => {
                   const isRetired = res.status === ResourceStatus.RETIRED;
+                  const isMaintenance = res.status === ResourceStatus.MAINTENANCE;
 
                   return (
                     <tr
@@ -917,10 +1122,17 @@ export function AdminDashboard({
                           </span>
                         )}
                         {res.status === ResourceStatus.MAINTENANCE && (
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
-                            <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                            Maintenance
-                          </span>
+                          <div className="space-y-0.5">
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                              Maintenance
+                            </span>
+                            {res.maintenanceLogs?.[0] && (
+                              <p className="text-[10px] text-amber-600 dark:text-amber-400 font-medium truncate max-w-[130px]" title={res.maintenanceLogs[0].reason}>
+                                {res.maintenanceLogs[0].reason}
+                              </p>
+                            )}
+                          </div>
                         )}
                         {res.status === ResourceStatus.RETIRED && (
                           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-700">
@@ -933,6 +1145,7 @@ export function AdminDashboard({
                       {/* Actions */}
                       <td className="px-4 py-3.5 text-right whitespace-nowrap">
                         <div className="inline-flex items-center gap-1.5">
+                          {/* Edit Button */}
                           <button
                             onClick={() => {
                               setResourceToEdit(res);
@@ -944,6 +1157,28 @@ export function AdminDashboard({
                             <Edit2 className="w-3.5 h-3.5" />
                           </button>
 
+                          {/* Maintenance Mode Toggle Button */}
+                          {isMaintenance ? (
+                            <button
+                              onClick={() => handleRestoreOperational(res)}
+                              disabled={isTogglingMaintenanceId === res.id}
+                              className="p-1.5 rounded-lg border border-emerald-200 dark:border-emerald-800/80 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 transition-colors cursor-pointer"
+                              title="Restore to Operational (End Maintenance)"
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleOpenMaintenanceModal(res)}
+                              disabled={isRetired || isTogglingMaintenanceId === res.id}
+                              className="p-1.5 rounded-lg border border-amber-200 dark:border-amber-800/80 bg-amber-50/60 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/50 transition-colors cursor-pointer disabled:opacity-40"
+                              title="Place in Maintenance Mode"
+                            >
+                              <Wrench className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+
+                          {/* Archive / Restore Button */}
                           <button
                             onClick={() => handleToggleArchive(res)}
                             disabled={isArchivingId === res.id}
@@ -977,6 +1212,17 @@ export function AdminDashboard({
         onClose={() => setIsModalOpen(false)}
         resourceToEdit={resourceToEdit}
         categories={activeCategories}
+        onSuccess={() => {
+          handleRefreshResources();
+          router.refresh();
+        }}
+      />
+
+      {/* Maintenance Modal for Placing Assets into Maintenance */}
+      <MaintenanceModal
+        isOpen={isMaintenanceModalOpen}
+        onClose={() => setIsMaintenanceModalOpen(false)}
+        resource={maintenanceModalResource}
         onSuccess={() => {
           handleRefreshResources();
           router.refresh();

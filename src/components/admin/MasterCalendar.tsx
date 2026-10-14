@@ -709,7 +709,7 @@ export function MasterCalendar({
             {/* Timeline Header Row (Hours Scale) */}
             <div className="flex border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50/80 dark:bg-zinc-800/50 sticky top-0 z-20">
               {/* Left Column Header (Resource Asset Info) */}
-              <div className="w-72 shrink-0 p-3.5 border-r border-zinc-200 dark:border-zinc-800 text-xs font-bold text-zinc-700 dark:text-zinc-300 flex items-center justify-between">
+              <div className="w-72 shrink-0 p-3.5 border-r border-zinc-200 dark:border-zinc-800 text-xs font-bold text-zinc-700 dark:text-zinc-300 flex items-center justify-between sticky left-0 z-30 bg-zinc-50 dark:bg-zinc-800">
                 <span>Facility / Hardware Asset</span>
                 <span className="text-[10px] text-zinc-400 font-normal">
                   Showing {filteredResources.length}
@@ -761,7 +761,7 @@ export function MasterCalendar({
                       className="flex hover:bg-zinc-50/40 dark:hover:bg-zinc-800/20 transition-colors group"
                     >
                       {/* Left Column: Asset Identity Card */}
-                      <div className="w-72 shrink-0 p-3.5 border-r border-zinc-200/80 dark:border-zinc-800 flex flex-col justify-between space-y-2">
+                      <div className="w-72 shrink-0 p-3.5 border-r border-zinc-200/80 dark:border-zinc-800 flex flex-col justify-between space-y-2 sticky left-0 z-10 bg-white dark:bg-zinc-900">
                         <div className="space-y-1">
                           <div className="flex items-center justify-between gap-1.5">
                             <div className="flex items-center gap-1.5 min-w-0">

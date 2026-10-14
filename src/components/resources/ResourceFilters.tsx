@@ -110,8 +110,8 @@ export function ResourceFilters({
           )}
         </div>
 
-        {/* Capacity Selector */}
-        <div className="flex items-center gap-2">
+        {/* Capacity, Availability, and Sort Selectors */}
+        <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
           <div className="relative shrink-0">
             <select
               value={capacityFilter}

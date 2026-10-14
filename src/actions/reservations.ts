@@ -839,3 +839,176 @@ export async function getApprovalQueueData() {
   }
 }
 
+/**
+ * Retrieves cross-resource timeline data for the Administrator Master Calendar.
+ * Supports cross-resource matrix analysis across all facilities, categories, and maintenance logs.
+ */
+export async function getMasterCalendarData(
+  targetDateStr?: string,
+  categoryId?: string,
+  viewDays: number = 1
+) {
+  try {
+    const baseDate = targetDateStr ? new Date(targetDateStr) : new Date();
+    const validBase = isNaN(baseDate.getTime()) ? new Date() : baseDate;
+
+    // Window boundaries: 00:00:00 of start date to 23:59:59 of end date
+    const startDate = new Date(
+      validBase.getFullYear(),
+      validBase.getMonth(),
+      validBase.getDate(),
+      0,
+      0,
+      0,
+      0
+    );
+
+    const endDate = new Date(
+      validBase.getFullYear(),
+      validBase.getMonth(),
+      validBase.getDate() + (viewDays - 1),
+      23,
+      59,
+      59,
+      999
+    );
+
+    const [resources, reservations, maintenanceLogs, categories] = await Promise.all([
+      prisma.resource.findMany({
+        where: {
+          categoryId: categoryId && categoryId !== 'ALL' ? categoryId : undefined,
+        },
+        include: {
+          category: {
+            select: { id: true, name: true, slug: true, iconName: true },
+          },
+          maintenanceLogs: {
+            where: { status: { in: ['IN_PROGRESS', 'SCHEDULED'] } },
+            orderBy: { startTime: 'asc' },
+          },
+        },
+        orderBy: [{ category: { name: 'asc' } }, { name: 'asc' }],
+      }),
+      prisma.reservation.findMany({
+        where: {
+          resource: {
+            categoryId: categoryId && categoryId !== 'ALL' ? categoryId : undefined,
+          },
+          status: { in: [ReservationStatus.CONFIRMED, ReservationStatus.PENDING] },
+          startTime: { lt: endDate },
+          endTime: { gt: startDate },
+        },
+        include: {
+          resource: {
+            select: {
+              id: true,
+              name: true,
+              code: true,
+              location: true,
+              bufferMinutes: true,
+              requiresApproval: true,
+              category: { select: { name: true, iconName: true } },
+            },
+          },
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              department: true,
+            },
+          },
+        },
+        orderBy: { startTime: 'asc' },
+      }),
+      prisma.maintenanceLog.findMany({
+        where: {
+          resource: {
+            categoryId: categoryId && categoryId !== 'ALL' ? categoryId : undefined,
+          },
+          status: { in: ['SCHEDULED', 'IN_PROGRESS'] },
+          startTime: { lt: endDate },
+          OR: [{ endTime: null }, { endTime: { gt: startDate } }],
+        },
+        include: {
+          resource: {
+            select: { id: true, name: true, code: true, location: true },
+          },
+        },
+        orderBy: { startTime: 'asc' },
+      }),
+      prisma.category.findMany({
+        select: { id: true, name: true, slug: true, iconName: true },
+        orderBy: { name: 'asc' },
+      }),
+    ]);
+
+    // Calculate daily metrics
+    const confirmedCount = reservations.filter(
+      (r) => r.status === ReservationStatus.CONFIRMED
+    ).length;
+    const pendingCount = reservations.filter(
+      (r) => r.status === ReservationStatus.PENDING
+    ).length;
+    const inMaintenanceCount = resources.filter(
+      (r) => r.status === 'MAINTENANCE'
+    ).length;
+
+    // Calculate booked minutes during operational window (08:00 - 20:00 = 12h per day)
+    let totalBookedMinutes = 0;
+    reservations.forEach((r) => {
+      if (r.status === ReservationStatus.CONFIRMED) {
+        const rStart = Math.max(r.startTime.getTime(), startDate.getTime());
+        const rEnd = Math.min(r.endTime.getTime(), endDate.getTime());
+        if (rEnd > rStart) {
+          totalBookedMinutes += (rEnd - rStart) / (1000 * 60);
+        }
+      }
+    });
+
+    const operationalResources = Math.max(1, resources.filter((r) => r.status === 'AVAILABLE').length);
+    const totalCapacityMinutes = operationalResources * 12 * 60 * viewDays;
+    const utilizationRate = Math.min(100, Math.round((totalBookedMinutes / totalCapacityMinutes) * 100));
+
+    return {
+      success: true,
+      date: validBase.toISOString().split('T')[0],
+      startDate: startDate.toISOString(),
+      endDate: endDate.toISOString(),
+      resources,
+      reservations,
+      maintenanceLogs,
+      categories,
+      metrics: {
+        totalResources: resources.length,
+        totalBookingsToday: reservations.length,
+        confirmedBookings: confirmedCount,
+        pendingApprovals: pendingCount,
+        inMaintenanceCount,
+        utilizationRate,
+      },
+    };
+  } catch (error) {
+    console.error('[ERROR] Failed to fetch master calendar data:', error);
+    return {
+      success: false,
+      date: new Date().toISOString().split('T')[0],
+      startDate: new Date().toISOString(),
+      endDate: new Date().toISOString(),
+      resources: [],
+      reservations: [],
+      maintenanceLogs: [],
+      categories: [],
+      metrics: {
+        totalResources: 0,
+        totalBookingsToday: 0,
+        confirmedBookings: 0,
+        pendingApprovals: 0,
+        inMaintenanceCount: 0,
+        utilizationRate: 0,
+      },
+      error: 'Failed to load master calendar dataset.',
+    };
+  }
+}
+

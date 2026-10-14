@@ -377,6 +377,14 @@ export function AdminDashboard({
           >
             Switch Role
           </button>
+
+          <Link
+            href="/admin/calendar"
+            className="px-3 py-1.5 rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 text-[11px] font-semibold transition-colors shadow-xs inline-flex items-center gap-1.5"
+          >
+            <CalendarDays className="w-3.5 h-3.5" />
+            <span>Master Calendar</span>
+          </Link>
         </div>
       </div>
 
@@ -721,10 +729,10 @@ export function AdminDashboard({
             </div>
 
             <Link
-              href="/schedule"
+              href="/admin/calendar"
               className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1"
             >
-              <span>Master Schedule</span>
+              <span>Master Calendar Timeline</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </Link>
           </div>

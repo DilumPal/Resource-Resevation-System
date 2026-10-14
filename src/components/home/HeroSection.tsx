@@ -55,7 +55,7 @@ export function HeroSection() {
 
           <p className="mt-5 text-base sm:text-lg text-zinc-600 dark:text-zinc-300 leading-relaxed max-w-2xl">
             A centralized, conflict-free reservation platform for meeting rooms, lab equipment,
-            workstations, and company vehicles. Built with Next.js App Router, TypeScript, and PostgreSQL.
+            workstations, and company vehicles.
           </p>
 
           {/* CTA Buttons */}
@@ -91,9 +91,8 @@ export function HeroSection() {
           <div className="mt-8 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white/70 dark:bg-zinc-900/60 backdrop-blur-xs flex items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               <div
-                className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-xs text-white ${
-                  isAdmin ? 'bg-purple-600' : 'bg-emerald-600'
-                }`}
+                className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-xs text-white ${isAdmin ? 'bg-purple-600' : 'bg-emerald-600'
+                  }`}
               >
                 {currentUser.name.charAt(0)}
               </div>
@@ -103,11 +102,10 @@ export function HeroSection() {
                     Active User: {currentUser.name}
                   </span>
                   <span
-                    className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                      isAdmin
+                    className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${isAdmin
                         ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/60 dark:text-purple-300'
                         : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/60 dark:text-emerald-300'
-                    }`}
+                      }`}
                   >
                     {role}
                   </span>

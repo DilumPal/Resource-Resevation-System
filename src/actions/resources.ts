@@ -575,6 +575,7 @@ export async function getAdminDashboardStats() {
       todayBookingsCount,
       pendingCount,
       pendingReservations,
+      recentDecisions,
       allCategories,
       activeMaintenanceLogs,
       recentReservations,
@@ -595,10 +596,45 @@ export async function getAdminDashboardStats() {
       prisma.reservation.findMany({
         where: { status: 'PENDING' },
         include: {
-          resource: { select: { id: true, name: true, code: true, location: true } },
+          resource: {
+            select: {
+              id: true,
+              name: true,
+              code: true,
+              location: true,
+              capacity: true,
+              bufferMinutes: true,
+              requiresApproval: true,
+              imageUrl: true,
+              category: { select: { name: true, iconName: true } },
+            },
+          },
           user: { select: { id: true, name: true, email: true, department: true } },
         },
         orderBy: { createdAt: 'desc' },
+      }),
+      prisma.reservation.findMany({
+        where: {
+          status: { in: ['CONFIRMED', 'REJECTED'] },
+          resource: { requiresApproval: true },
+        },
+        include: {
+          resource: {
+            select: {
+              id: true,
+              name: true,
+              code: true,
+              location: true,
+              capacity: true,
+              bufferMinutes: true,
+              requiresApproval: true,
+              imageUrl: true,
+              category: { select: { name: true, iconName: true } },
+            },
+          },
+          user: { select: { id: true, name: true, email: true, department: true } },
+        },
+        orderBy: { updatedAt: 'desc' },
         take: 10,
       }),
       prisma.category.findMany({
@@ -779,6 +815,7 @@ export async function getAdminDashboardStats() {
       hourlyDistribution,
       topDemandedResources,
       pendingReservations,
+      recentDecisions,
       activeMaintenanceLogs,
       categories: allCategories,
     };
@@ -799,6 +836,7 @@ export async function getAdminDashboardStats() {
       hourlyDistribution: [],
       topDemandedResources: [],
       pendingReservations: [],
+      recentDecisions: [],
       activeMaintenanceLogs: [],
       categories: [],
       error: 'Failed to load administration analytics.',

@@ -42,6 +42,7 @@ import { useNotification } from '@/context/NotificationContext';
 import { ResourceData, getCategoryIcon } from '../resources/ResourceCard';
 import { ResourceFormModal, CategoryItem } from './ResourceFormModal';
 import { MaintenanceModal } from './MaintenanceModal';
+import { ApprovalHub, PendingReservationItem } from './ApprovalHub';
 import { archiveResource, getResources, toggleResourceMaintenance } from '@/actions/resources';
 
 export interface AdminStatsData {
@@ -82,25 +83,8 @@ export interface AdminStatsData {
     bookingsCount: number;
     utilizationPercent: number;
   }>;
-  pendingReservations: Array<{
-    id: string;
-    title: string;
-    startTime: Date | string;
-    endTime: Date | string;
-    status: string;
-    resource: {
-      id: string;
-      name: string;
-      code: string;
-      location: string;
-    };
-    user: {
-      id: string;
-      name: string;
-      email: string;
-      department?: string | null;
-    };
-  }>;
+  pendingReservations: PendingReservationItem[];
+  recentDecisions?: PendingReservationItem[];
   activeMaintenanceLogs: Array<{
     id: string;
     reason: string;
@@ -144,8 +128,11 @@ export function AdminDashboard({
     hourlyDistribution,
     topDemandedResources,
     pendingReservations,
+    recentDecisions = [],
     activeMaintenanceLogs,
   } = initialData;
+
+  const [pendingApprovalsCount, setPendingApprovalsCount] = useState(stats.pendingApprovalsCount);
 
   // Inventory Management State
   const [resourcesList, setResourcesList] = useState<ResourceData[]>(initialResources);
@@ -474,19 +461,22 @@ export function AdminDashboard({
         </div>
 
         {/* Card 4: Pending Approvals */}
-        <div className="p-5 rounded-2xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-xs hover:shadow-md transition-shadow relative overflow-hidden group">
+        <a
+          href="#approval-hub"
+          className="p-5 rounded-2xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-xs hover:shadow-md hover:border-amber-300 dark:hover:border-amber-700/80 transition-all relative overflow-hidden group block cursor-pointer"
+        >
           <div className="flex items-start justify-between">
             <div>
               <p className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">
                 Pending Approvals
               </p>
               <h3 className="text-3xl font-extrabold text-zinc-900 dark:text-white mt-1.5">
-                {stats.pendingApprovalsCount}
+                {pendingApprovalsCount}
               </h3>
             </div>
             <div
               className={`p-3 rounded-xl border ${
-                stats.pendingApprovalsCount > 0
+                pendingApprovalsCount > 0
                   ? 'bg-amber-50 dark:bg-amber-950/60 border-amber-200 dark:border-amber-800/60 text-amber-600 dark:text-amber-400'
                   : 'bg-zinc-50 dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 text-zinc-400'
               }`}
@@ -495,10 +485,10 @@ export function AdminDashboard({
             </div>
           </div>
           <div className="mt-4 pt-3 border-t border-zinc-100 dark:border-zinc-800/80 flex items-center justify-between text-xs">
-            {stats.pendingApprovalsCount > 0 ? (
+            {pendingApprovalsCount > 0 ? (
               <span className="text-amber-600 dark:text-amber-400 font-bold flex items-center gap-1">
                 <span>Requires Review</span>
-                <ArrowRight className="w-3 h-3" />
+                <ArrowRight className="w-3 h-3 group-hover:translate-x-1 transition-transform" />
               </span>
             ) : (
               <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
@@ -508,7 +498,7 @@ export function AdminDashboard({
             )}
             <span className="text-zinc-400">Queue Status</span>
           </div>
-        </div>
+        </a>
       </div>
 
       {/* Main Charts Grid: 7-Day Demand Horizon & Category Breakdown */}
@@ -779,6 +769,16 @@ export function AdminDashboard({
             ))}
           </div>
         </div>
+      </div>
+
+      {/* 4. Approval Hub: Review Queue */}
+      <div id="approval-hub" className="scroll-mt-20">
+        <ApprovalHub
+          initialPending={pendingReservations}
+          initialHistory={recentDecisions}
+          adminUserId={currentUser.id}
+          onQueueUpdate={(newCount) => setPendingApprovalsCount(newCount)}
+        />
       </div>
 
       {/* 5. Active Maintenance Queue & Downtime Governance */}

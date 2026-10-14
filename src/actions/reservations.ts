@@ -734,3 +734,108 @@ export async function checkSlotConflict(input: {
   }
 }
 
+/**
+ * Fetches real-time Approval Hub review queue data for administrators.
+ * Evaluates conflict status for every pending request against active schedules.
+ */
+export async function getApprovalQueueData() {
+  try {
+    const [pending, history] = await Promise.all([
+      prisma.reservation.findMany({
+        where: { status: ReservationStatus.PENDING },
+        include: {
+          resource: {
+            select: {
+              id: true,
+              name: true,
+              code: true,
+              location: true,
+              capacity: true,
+              bufferMinutes: true,
+              requiresApproval: true,
+              imageUrl: true,
+              category: { select: { name: true, iconName: true } },
+            },
+          },
+          user: {
+            select: { id: true, name: true, email: true, department: true },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+      prisma.reservation.findMany({
+        where: {
+          status: { in: [ReservationStatus.CONFIRMED, ReservationStatus.REJECTED] },
+          resource: { requiresApproval: true },
+        },
+        include: {
+          resource: {
+            select: {
+              id: true,
+              name: true,
+              code: true,
+              location: true,
+              capacity: true,
+              bufferMinutes: true,
+              requiresApproval: true,
+              imageUrl: true,
+              category: { select: { name: true, iconName: true } },
+            },
+          },
+          user: {
+            select: { id: true, name: true, email: true, department: true },
+          },
+        },
+        orderBy: { updatedAt: 'desc' },
+        take: 15,
+      }),
+    ]);
+
+    // Check conflict status for each pending request
+    const pendingWithConflicts = await Promise.all(
+      pending.map(async (item) => {
+        try {
+          const conflict = await checkReservationConflict(prisma, {
+            resourceId: item.resourceId,
+            startTime: item.startTime,
+            endTime: item.endTime,
+            excludeReservationId: item.id,
+            includePending: false,
+            allowPastBooking: true,
+          });
+
+          return {
+            ...item,
+            conflictStatus: {
+              hasConflict: conflict.hasConflict,
+              message: conflict.hasConflict ? (conflict.message || 'Overlap detected') : 'Conflict-Free',
+            },
+          };
+        } catch {
+          return {
+            ...item,
+            conflictStatus: {
+              hasConflict: false,
+              message: 'Conflict-Free',
+            },
+          };
+        }
+      })
+    );
+
+    return {
+      success: true,
+      pending: pendingWithConflicts,
+      history,
+    };
+  } catch (error) {
+    console.error('[ERROR] Failed to fetch approval queue data:', error);
+    return {
+      success: false,
+      pending: [],
+      history: [],
+      error: 'Failed to fetch approval queue data.',
+    };
+  }
+}
+

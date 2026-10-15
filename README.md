@@ -149,8 +149,6 @@ SyncSpace provides a pre-configured organizational seed dataset. Authentication 
 | :--- | :--- | :--- | :--- | :--- |
 | **Sarah Jenkins** | `admin@syncspace.io` | `ADMIN` | Operations & Facilities | Approval queue management, resource CRUD, maintenance triggers, and master calendar. |
 | **Alex Morgan** | `alex.member@syncspace.io` | `MEMBER` | Software Engineering | Self-service booking, pending status verification, and reservation cancellation. |
-| **Elena Rodriguez**| `elena.rodriguez@syncspace.io` | `MEMBER` | Product Design | Multi-user booking conflict validation and schedule inspection. |
-| **David Kim** | `david.kim@syncspace.io` | `MEMBER` | Data Science & AI | High-demand GPU compute server reservation scenarios. |
 
 ---
 
